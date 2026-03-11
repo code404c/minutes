@@ -72,11 +72,12 @@ def fake_event_bus() -> FakeEventBus:
 
 
 @pytest.fixture
-def app(test_settings: Settings, session_factory, fake_queue_dispatcher: FakeQueueDispatcher, fake_event_bus: FakeEventBus):
+def app(
+    test_settings: Settings, session_factory, fake_queue_dispatcher: FakeQueueDispatcher, fake_event_bus: FakeEventBus
+):
     return create_app(
         settings=test_settings,
         session_factory=session_factory,
         queue_dispatcher=fake_queue_dispatcher,
         event_bus=fake_event_bus,
     )
-

@@ -35,4 +35,3 @@ class DramatiqQueueDispatcher:
         from minutes_inference.actors import transcribe_job_actor
 
         transcribe_job_actor.send(job_id)
-

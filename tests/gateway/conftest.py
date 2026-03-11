@@ -105,9 +105,11 @@ class GatewayHarness:
                     sync_mode=sync_mode,
                 )
             )
+            session.commit()
             self.created_job_ids.append(created.id)
             if result is not None:
                 stored = repo.save_result(created.id, result.model_copy(update={"job_id": created.id}))
+                session.commit()
             elif status is not JobStatus.QUEUED or progress or error_code or error_message:
                 stored = repo.update_job(
                     created.id,
@@ -117,6 +119,7 @@ class GatewayHarness:
                     error_message=error_message,
                     language=language,
                 )
+                session.commit()
             else:
                 stored = created
         return stored

@@ -24,6 +24,7 @@ def create_engine_from_url(database_url: str, *, sqlite_busy_timeout_ms: int = 5
     engine = create_engine(database_url, **engine_kwargs)
 
     if database_url.startswith("sqlite"):
+
         @event.listens_for(engine, "connect")
         def _sqlite_pragmas(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
             cursor = dbapi_connection.cursor()
@@ -64,4 +65,3 @@ def init_database_cli() -> None:
     with session_factory() as session:
         session.execute(text("SELECT 1"))
         session.commit()
-

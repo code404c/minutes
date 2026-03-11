@@ -54,33 +54,34 @@ class FunASREngine:
         )
 
     def _get_or_load_model(self, cache_key: str):
-        cached = self.model_pool.get(cache_key)
-        if cached is not None:
-            return cached
+        def _loader():
+            try:
+                from funasr import AutoModel
+            except ImportError as exc:  # pragma: no cover - depends on optional package
+                raise FunASRUnavailableError(
+                    "FunASR is not installed. "
+                    "Install the project with the `inference` extra to enable real transcription."
+                ) from exc
 
-        try:
-            from funasr import AutoModel
-        except ImportError as exc:  # pragma: no cover - depends on optional package
-            raise FunASRUnavailableError(
-                "FunASR is not installed. Install the project with the `inference` extra to enable real transcription."
-            ) from exc
+            profile = get_profile_spec(cache_key)
+            model_kwargs: dict[str, Any] = {
+                "model": profile.asr_model_id,
+                "vad_model": profile.vad_model_id,
+                "device": self.settings.inference_device,
+                "trust_remote_code": True,
+            }
+            if profile.punc_model_id:
+                model_kwargs["punc_model"] = profile.punc_model_id
+            if profile.speaker_model_id:
+                model_kwargs["spk_model"] = profile.speaker_model_id
+            return AutoModel(**model_kwargs)
 
-        profile = get_profile_spec(cache_key)
-        model_kwargs: dict[str, Any] = {
-            "model": profile.asr_model_id,
-            "vad_model": profile.vad_model_id,
-            "device": self.settings.inference_device,
-            "trust_remote_code": True,
-        }
-        if profile.punc_model_id:
-            model_kwargs["punc_model"] = profile.punc_model_id
-        if profile.speaker_model_id:
-            model_kwargs["spk_model"] = profile.speaker_model_id
-        model = AutoModel(**model_kwargs)
-        return self.model_pool.put(cache_key, model)
+        return self.model_pool.get_or_create(cache_key, _loader)
 
     @staticmethod
-    def _build_segments(sentence_info: list[dict[str, Any]], fallback_text: str, fallback_duration_ms: int) -> list[Segment]:
+    def _build_segments(
+        sentence_info: list[dict[str, Any]], fallback_text: str, fallback_duration_ms: int
+    ) -> list[Segment]:
         if not sentence_info:
             return [
                 Segment(
@@ -126,4 +127,3 @@ class FunASREngine:
             )
             for speaker_id in sorted(counts)
         ]
-

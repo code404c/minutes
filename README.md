@@ -52,40 +52,46 @@
 安装最小依赖：
 
 ```bash
-python3 -m pip install -e '.[dev]'
+uv sync --extra dev
 ```
 
 初始化数据库：
 
 ```bash
-python3 -m alembic upgrade head
+uv run alembic upgrade head
 ```
 
 只起网关：
 
 ```bash
-uvicorn minutes_gateway.app:create_app --factory --reload
+uv run uvicorn minutes_gateway.app:create_app --factory --reload
 ```
 
 本地串行 smoke（不启容器，不依赖 Redis worker）：
 
 ```bash
-python3 scripts/local_run_job.py --fake-inference /path/to/audio.m4a
+uv run python scripts/local_run_job.py --fake-inference /path/to/audio.m4a
 ```
 
 真实模型本地顺序跑：
 
 ```bash
-python3 scripts/local_run_job.py /path/to/audio.m4a
+uv sync --extra dev --extra inference
+uv run python scripts/download_models.py
+uv run python scripts/local_run_job.py /path/to/audio.m4a
 ```
 
 ## Docker Compose
-先准备 `.env`，仓库里已经放了一份默认 [.env](/home/ysnow/workspaces/app/minutes/.env)。
+先准备本地 `.env`。可以直接从 [.env.example](/home/ysnow/workspaces/app/minutes/.env.example) 生成：
+
+```bash
+cp .env.example .env
+```
 
 启动：
 
 ```bash
-docker compose up --build
+make docker-up
 ```
 
 服务：
@@ -100,16 +106,18 @@ docker compose up --build
 - [celery-migration.md](/home/ysnow/workspaces/app/minutes/docs/celery-migration.md)
 
 ## 已验证内容
-- `pytest -q`：当前 `17 passed`
-- `python3 -m alembic upgrade head`：迁移可执行
+- `uv run pytest -q`：当前 `17 passed`
+- `uv run alembic upgrade head`：迁移可执行
 - `docker compose config`：编排文件可解析
-- `python3 scripts/local_run_job.py --fake-inference ...`：本地顺序 smoke 已验证
-- `python3 scripts/local_run_job.py --device cpu ...`：真实模型本地顺序烟测已验证
+- `uv run python scripts/local_run_job.py --fake-inference ...`：本地顺序 smoke 已验证
+- `uv run python scripts/local_run_job.py --device cpu ...`：真实模型本地顺序烟测已验证
 
 ## 真实模型测试提示
 - 本机 `modelscope` 缓存默认假设在 `~/.cache/modelscope`
 - `cn_meeting` 使用 `Paraformer-large + FSMN-VAD + CT-Punc`
 - `multilingual_rich` 使用 `SenseVoiceSmall`
+- 可用 `uv run python scripts/download_models.py` 预下载默认模型
+- Windows 测试目录 `C:\temp\meetings` 在 WSL 中对应 `/mnt/c/temp/meetings`
 - 真模型链路仍建议先用一段较短音频验证依赖和显存，再跑长会录音
 
 ## 已知限制

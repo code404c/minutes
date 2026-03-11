@@ -6,7 +6,6 @@ from contextvars import ContextVar
 
 from loguru import logger
 
-
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 job_id_var: ContextVar[str | None] = ContextVar("job_id", default=None)
 
@@ -44,4 +43,3 @@ def bind_request_context(*, request_id: str | None = None, job_id: str | None = 
         job_id_var.set(job_id)
         values["job_id"] = job_id
     return logger.bind(**values)
-

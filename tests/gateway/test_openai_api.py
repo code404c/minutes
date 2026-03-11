@@ -6,6 +6,8 @@ from minutes_core.constants import JobStatus
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
 
+from .conftest import build_transcript_document
+
 
 def _error_message(payload: dict[str, object]) -> str:
     detail = payload.get("detail")
@@ -69,6 +71,7 @@ def test_openai_transcriptions_returns_failed_job_error(gateway_harness_factory)
                 error_code="transcription_failed",
                 error_message="transcription backend crashed",
             )
+            session.commit()
 
     with gateway_harness_factory(on_dispatch=fail_job) as harness:
         response = _post_transcription(harness.client)
@@ -78,3 +81,19 @@ def test_openai_transcriptions_returns_failed_job_error(gateway_harness_factory)
         status=HTTPStatus.INTERNAL_SERVER_ERROR,
         contains="transcription backend crashed",
     )
+
+
+def test_openai_transcriptions_returns_success_response(gateway_harness_factory) -> None:
+    def complete_job(session_factory, stage: str, job_id: str) -> None:
+        if stage != "prepare":
+            return
+        with session_factory() as session:
+            repo = JobRepository(session)
+            repo.save_result(job_id, build_transcript_document(job_id, text="同步转写完成"))
+            session.commit()
+
+    with gateway_harness_factory(on_dispatch=complete_job) as harness:
+        response = _post_transcription(harness.client)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json() == {"text": "同步转写完成"}

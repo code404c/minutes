@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from minutes_core.constants import JobStatus
@@ -16,6 +16,10 @@ class Base(DeclarativeBase):
 
 class JobRecord(Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_status", "status"),
+        Index("ix_jobs_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.QUEUED.value, nullable=False)
@@ -64,4 +68,3 @@ class JobRecord(Base):
             "updated_at": self.updated_at,
             "completed_at": self.completed_at,
         }
-

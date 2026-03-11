@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import hmac
 from collections.abc import Generator
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session, sessionmaker
 
 from minutes_core.config import Settings
 from minutes_core.events import EventBus
 from minutes_core.queue import QueueDispatcher
-from minutes_core.repositories import JobRepository
 from minutes_core.storage import StorageManager
 
 
@@ -23,10 +23,11 @@ def verify_api_key(request: Request) -> None:
         return
     header = request.headers.get("authorization", "")
     expected = f"Bearer {configured_key}"
-    if header != expected:
+    if not hmac.compare_digest(header, expected):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid API key.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
 
@@ -41,10 +42,6 @@ def get_db_session(request: Request) -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-
-
-def get_job_repository(session: Session = Depends(get_db_session)) -> JobRepository:
-    return JobRepository(session)
 
 
 def get_storage_manager(request: Request) -> StorageManager:

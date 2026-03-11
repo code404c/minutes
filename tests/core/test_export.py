@@ -16,12 +16,7 @@ def test_format_srt_exports_segment_cues(sample_transcript_document: TranscriptD
     exported = format_srt(sample_transcript_document)
 
     assert exported == (
-        "1\n"
-        "00:00:00,000 --> 00:00:01,500\n"
-        "你好，世界\n\n"
-        "2\n"
-        "00:00:01,500 --> 00:00:03,200\n"
-        "这是第二句。"
+        "1\n00:00:00,000 --> 00:00:01,500\n你好，世界\n\n2\n00:00:01,500 --> 00:00:03,200\n这是第二句。"
     )
 
 
@@ -29,11 +24,7 @@ def test_format_vtt_exports_webvtt_document(sample_transcript_document: Transcri
     exported = format_vtt(sample_transcript_document)
 
     assert exported == (
-        "WEBVTT\n\n"
-        "00:00:00.000 --> 00:00:01.500\n"
-        "你好，世界\n\n"
-        "00:00:01.500 --> 00:00:03.200\n"
-        "这是第二句。"
+        "WEBVTT\n\n00:00:00.000 --> 00:00:01.500\n你好，世界\n\n00:00:01.500 --> 00:00:03.200\n这是第二句。"
     )
 
 

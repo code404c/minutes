@@ -107,3 +107,33 @@ def test_get_job_transcript_returns_completed_document(gateway_harness_factory) 
         "大家好，今天讨论项目排期。",
         "先看预算，再看风险。",
     ]
+
+
+def test_get_job_returns_404_for_missing_job(gateway_harness_factory) -> None:
+    with gateway_harness_factory() as harness:
+        response = harness.client.get("/api/v1/jobs/missing-job")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_get_transcript_returns_409_when_job_is_not_ready(gateway_harness_factory) -> None:
+    with gateway_harness_factory() as harness:
+        job = harness.create_job(status=JobStatus.TRANSCRIBING, progress=50)
+        response = harness.client.get(f"/api/v1/jobs/{job.id}/transcript")
+
+    assert response.status_code == HTTPStatus.CONFLICT
+
+
+def test_export_returns_404_for_missing_job(gateway_harness_factory) -> None:
+    with gateway_harness_factory() as harness:
+        response = harness.client.get("/api/v1/jobs/missing-job/export?format=txt")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_export_returns_409_when_job_is_not_ready(gateway_harness_factory) -> None:
+    with gateway_harness_factory() as harness:
+        job = harness.create_job(status=JobStatus.TRANSCRIBING, progress=50)
+        response = harness.client.get(f"/api/v1/jobs/{job.id}/export?format=txt")
+
+    assert response.status_code == HTTPStatus.CONFLICT

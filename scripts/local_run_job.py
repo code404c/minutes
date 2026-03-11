@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 
 from minutes_core.config import Settings
 from minutes_core.db import create_session_factory, init_database
@@ -86,6 +86,7 @@ def main() -> int:
                 language=args.language,
             )
         )
+        session.commit()
 
     orchestrator = OrchestratorService(
         settings=settings,

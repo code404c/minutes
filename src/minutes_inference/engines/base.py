@@ -8,4 +8,3 @@ from minutes_core.schemas import JobDetail, TranscriptDocument
 
 class InferenceEngine(Protocol):
     def transcribe(self, job: JobDetail, normalized_path: Path) -> TranscriptDocument: ...
-

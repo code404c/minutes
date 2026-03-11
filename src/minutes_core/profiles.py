@@ -56,4 +56,3 @@ def resolve_profile(value: str | JobProfile | None) -> JobProfile:
 
 def get_profile_spec(value: str | JobProfile | None) -> ProfileSpec:
     return PROFILE_SPECS[resolve_profile(value)]
-

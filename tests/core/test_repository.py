@@ -19,6 +19,7 @@ def test_job_repository_create_job_persists_sqlite_record(
     job_create_payload: JobCreate,
 ) -> None:
     detail = job_repository.create_job(job_create_payload)
+    sqlite_session.commit()
     record = sqlite_session.get(JobRecord, detail.id)
 
     assert detail.status is JobStatus.QUEUED
@@ -40,6 +41,7 @@ def test_job_repository_update_job_updates_status_and_metadata(
     job_create_payload: JobCreate,
 ) -> None:
     created = job_repository.create_job(job_create_payload)
+    sqlite_session.commit()
 
     updated = job_repository.update_job(
         created.id,
@@ -49,6 +51,7 @@ def test_job_repository_update_job_updates_status_and_metadata(
         duration_ms=3200,
         language="zh",
     )
+    sqlite_session.commit()
     record = sqlite_session.get(JobRecord, created.id)
 
     assert updated.status is JobStatus.COMPLETED
@@ -71,9 +74,11 @@ def test_job_repository_save_result_persists_transcript_document(
     sample_transcript_document: TranscriptDocument,
 ) -> None:
     created = job_repository.create_job(job_create_payload)
+    sqlite_session.commit()
     document = sample_transcript_document.model_copy(update={"job_id": created.id})
 
     saved = job_repository.save_result(created.id, document)
+    sqlite_session.commit()
     fetched = job_repository.get_job(created.id)
     record = sqlite_session.get(JobRecord, created.id)
 

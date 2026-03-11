@@ -48,4 +48,3 @@ def format_vtt(document: TranscriptDocument) -> str:
 
 def format_json(document: TranscriptDocument) -> str:
     return json.dumps(document.model_dump(mode="json"), ensure_ascii=False, indent=2)
-

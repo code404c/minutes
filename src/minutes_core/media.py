@@ -57,4 +57,3 @@ def transcode_to_wav(input_path: Path, output_path: Path) -> Path:
     if result.returncode != 0:
         raise MediaProcessingError(result.stderr.strip() or "ffmpeg failed")
     return output_path
-

@@ -20,7 +20,12 @@ from minutes_gateway.routers.openai import router as openai_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_database(app.state.session_factory.kw["bind"])
-    yield
+    try:
+        yield
+    finally:
+        close = getattr(app.state.event_bus, "close", None)
+        if callable(close):
+            close()
 
 
 def create_app(

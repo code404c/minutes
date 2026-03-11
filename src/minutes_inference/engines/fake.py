@@ -32,4 +32,3 @@ class FakeInferenceEngine:
             ],
             model_profile=job.profile,
         )
-

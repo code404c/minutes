@@ -12,6 +12,10 @@ from minutes_core.profiles import JobProfile, resolve_profile
 from minutes_core.schemas import JobCreate, JobDetail, JobRead, TranscriptDocument
 
 
+class JobNotFoundError(KeyError):
+    """请求的 Job 不存在时抛出。"""
+
+
 class JobRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -33,7 +37,7 @@ class JobRepository:
             updated_at=now,
         )
         self.session.add(record)
-        self.session.commit()
+        self.session.flush()
         self.session.refresh(record)
         return self._to_detail(record)
 
@@ -57,7 +61,7 @@ class JobRepository:
     ) -> JobDetail:
         record = self.session.get(JobRecord, job_id)
         if record is None:
-            raise KeyError(job_id)
+            raise JobNotFoundError(job_id)
         if status is not None:
             record.status = status.value
             if status in {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELED}:
@@ -76,21 +80,21 @@ class JobRepository:
             record.language = language
         record.updated_at = datetime.now(UTC)
         self.session.add(record)
-        self.session.commit()
+        self.session.flush()
         self.session.refresh(record)
         return self._to_detail(record)
 
     def save_result(self, job_id: str, document: TranscriptDocument) -> JobDetail:
         record = self.session.get(JobRecord, job_id)
         if record is None:
-            raise KeyError(job_id)
+            raise JobNotFoundError(job_id)
         record.result_json = document.model_dump_json()
         record.progress = 100
         record.status = JobStatus.COMPLETED.value
         record.completed_at = datetime.now(UTC)
         record.updated_at = datetime.now(UTC)
         self.session.add(record)
-        self.session.commit()
+        self.session.flush()
         self.session.refresh(record)
         return self._to_detail(record)
 

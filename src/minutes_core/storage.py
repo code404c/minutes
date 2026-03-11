@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from fastapi import UploadFile
 
@@ -25,7 +25,7 @@ class StorageManager:
         return source_path, artifact_dir
 
     def save_upload(self, upload: UploadFile, *, job_id: str | None = None) -> tuple[Path, Path]:
-        filename = upload.filename or "upload.bin"
+        filename = Path(PureWindowsPath(upload.filename or "upload.bin").name).name or "upload.bin"
         source_path, artifact_dir = self.create_job_paths(filename, job_id=job_id)
         with source_path.open("wb") as handle:
             shutil.copyfileobj(upload.file, handle)

@@ -9,11 +9,11 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from minutes_core.constants import JobStatus
 from minutes_core.export import format_srt, format_txt, format_vtt
+from minutes_core.profiles import resolve_profile
+from minutes_core.queue import QueueDispatcher
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import JobCreate, OpenAITranscriptionResponse
 from minutes_core.storage import StorageManager
-from minutes_core.queue import QueueDispatcher
-from minutes_core.profiles import resolve_profile
 from minutes_gateway.dependencies import (
     get_db_session,
     get_queue_dispatcher,
@@ -21,6 +21,7 @@ from minutes_gateway.dependencies import (
     get_storage_manager,
     verify_api_key,
 )
+from minutes_gateway.routers.jobs import _parse_hotwords
 
 router = APIRouter(prefix="/v1/audio", tags=["openai-compatible"], dependencies=[Depends(verify_api_key)])
 
@@ -44,7 +45,9 @@ async def _await_job_completion(
         if detail.status == JobStatus.FAILED:
             if detail.error_code == "SYNC_DURATION_LIMIT_EXCEEDED":
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail.error_message)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail.error_message or "Job failed.")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail.error_message or "Job failed."
+            )
         await asyncio.sleep(0.2)
     raise HTTPException(
         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -77,16 +80,17 @@ async def create_transcription(
     detail = repository.create_job(
         JobCreate(
             job_id=job_id,
-            source_filename=file.filename or "upload.bin",
+            source_filename=source_path.name,
             source_content_type=file.content_type,
             source_path=str(source_path),
             output_dir=str(output_dir),
             profile=resolve_profile(model),
             language=language,
-            hotwords=[item.strip() for item in (hotwords or "").split(",") if item.strip()],
+            hotwords=_parse_hotwords(hotwords),
             sync_mode=True,
         )
     )
+    session.commit()
     queue_dispatcher.enqueue_prepare_job(detail.id)
     result = await _await_job_completion(repository, detail.id, timeout_seconds=settings.sync_wait_timeout_s)
 

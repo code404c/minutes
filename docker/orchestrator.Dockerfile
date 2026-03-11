@@ -11,10 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml /app/pyproject.toml
+COPY README.md /app/README.md
 COPY src /app/src
 COPY scripts /app/scripts
 
 RUN python -m pip install --upgrade pip && python -m pip install .
 
 CMD ["bash", "scripts/run-orchestrator.sh"]
-

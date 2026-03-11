@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 from minutes_core.constants import JobStatus
 from minutes_core.db import create_session_factory, init_database
@@ -53,6 +53,7 @@ def _create_job(session_factory, storage_root: Path, media_path: Path) -> str:
                 language="zh",
             )
         )
+        session.commit()
         return detail.id
 
 
@@ -200,3 +201,60 @@ def test_prepare_job_marks_failure_when_media_processing_errors(tmp_path, monkey
     assert queue.transcribed == []
     assert ("prepare", "failed", 0) in events.events
 
+
+def test_pipeline_stage_reentry_after_completion_is_noop(tmp_path, monkeypatch) -> None:
+    media_path = tmp_path / "input.wav"
+    media_path.write_bytes(b"fake-audio")
+
+    from minutes_core.config import Settings
+
+    settings = Settings(
+        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
+        storage_root=tmp_path,
+        redis_url="redis://unused:6379/0",
+        fake_inference=True,
+    )
+    session_factory = create_session_factory(settings)
+    init_database(session_factory.kw["bind"])
+    queue = RecordingQueue()
+    events = RecordingEventBus()
+    job_id = _create_job(session_factory, tmp_path, media_path)
+
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.probe_media",
+        lambda _path: MediaProbe(duration_ms=3_000, format_name="wav"),
+    )
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.transcode_to_wav",
+        lambda _source, output: output.write_bytes(b"normalized") or output,
+    )
+
+    orchestrator = OrchestratorService(
+        settings=settings,
+        session_factory=session_factory,
+        event_bus=events,
+        queue_dispatcher=queue,
+    )
+    inference = InferenceService(
+        settings=settings,
+        session_factory=session_factory,
+        event_bus=events,
+        queue_dispatcher=queue,
+    )
+
+    orchestrator.prepare_job(job_id)
+    inference.transcribe_job(job_id)
+    orchestrator.finalize_job(job_id)
+
+    queue_snapshot = (list(queue.transcribed), list(queue.finalized))
+
+    orchestrator.prepare_job(job_id)
+    inference.transcribe_job(job_id)
+    orchestrator.finalize_job(job_id)
+
+    with session_factory() as session:
+        detail = JobRepository(session).get_job(job_id)
+
+    assert detail is not None
+    assert detail.status == JobStatus.COMPLETED
+    assert queue_snapshot == (queue.transcribed, queue.finalized)

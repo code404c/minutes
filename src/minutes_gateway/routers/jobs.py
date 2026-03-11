@@ -7,12 +7,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from sse_starlette import EventSourceResponse
 
 from minutes_core.export import format_json, format_srt, format_txt, format_vtt
+from minutes_core.profiles import resolve_profile
+from minutes_core.queue import QueueDispatcher
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import JobCreate, JobEvent, JobRead, TranscriptDocument
 from minutes_core.storage import StorageManager
-from minutes_core.constants import JobStatus
-from minutes_core.profiles import JobProfile, resolve_profile
-from minutes_core.queue import QueueDispatcher
 from minutes_gateway.dependencies import (
     get_db_session,
     get_event_bus,
@@ -59,7 +58,7 @@ def create_job(
     detail = repository.create_job(
         JobCreate(
             job_id=job_id,
-            source_filename=file.filename or "upload.bin",
+            source_filename=source_path.name,
             source_content_type=file.content_type,
             source_path=str(source_path),
             output_dir=str(output_dir),
@@ -68,6 +67,7 @@ def create_job(
             hotwords=_parse_hotwords(hotwords),
         )
     )
+    session.commit()
     queue_dispatcher.enqueue_prepare_job(detail.id)
     return repository.to_read(detail)
 
@@ -105,7 +105,9 @@ def export_transcript(job_id: str, format: str, session=Depends(get_db_session))
 
 
 @router.get("/jobs/{job_id}/events")
-async def stream_job_events(job_id: str, session=Depends(get_db_session), event_bus=Depends(get_event_bus)) -> EventSourceResponse:
+async def stream_job_events(
+    job_id: str, session=Depends(get_db_session), event_bus=Depends(get_event_bus)
+) -> EventSourceResponse:
     repository = JobRepository(session)
     detail = repository.get_job(job_id)
     if detail is None:
