@@ -22,10 +22,21 @@
 
 ## 依赖与运行时
 - Python 3.12
+- FastAPI
+- Pydantic v2
 - SQLite
+- SQLAlchemy 2.x
+- Alembic
 - Redis
+- Dramatiq
 - `ffmpeg` / `ffprobe`
 - 可选 GPU 推理依赖：`funasr`、`modelscope`、`torch`
+- Docker Compose
+- Loguru
+
+注意：
+- 当前异步任务框架是 `Dramatiq + Redis`
+- 不是 `Celery`
 
 ## 环境变量
 默认样例在 [.env.example](/home/ysnow/workspaces/app/minutes/.env.example)。
@@ -82,11 +93,17 @@ docker compose up --build
 - `redis` 暴露 `6379`
 - `orchestrator` 与 `inference-worker` 在内部网络消费队列
 
+## Claude 交接
+如果后续需要让 Claude / Codex 快速接手项目，优先读这份文档：
+
+- [claude-handoff.md](/home/ysnow/workspaces/app/minutes/docs/claude-handoff.md)
+
 ## 已验证内容
-- `pytest -q`：当前 `14 passed`
+- `pytest -q`：当前 `17 passed`
 - `python3 -m alembic upgrade head`：迁移可执行
 - `docker compose config`：编排文件可解析
 - `python3 scripts/local_run_job.py --fake-inference ...`：本地顺序 smoke 已验证
+- `python3 scripts/local_run_job.py --device cpu ...`：真实模型本地顺序烟测已验证
 
 ## 真实模型测试提示
 - 本机 `modelscope` 缓存默认假设在 `~/.cache/modelscope`
@@ -98,5 +115,4 @@ docker compose up --build
 - `CAM++` 当前只作为段级 speaker embedding 使用，不是完整 overlap-aware diarization
 - OpenAI-compatible 接口当前只支持同步短音频
 - 实时 WebSocket/WebRTC 转写还没进入这一版
-- 真实 FunASR GPU 端到端链路代码已接好，但仍需要实机再做一次完整长音频验证
-
+- 当前机器上 GPU 路径会被 `torch CUDA / cuBLAS` 运行时问题阻塞，需先修环境再做 GPU 端到端验证
