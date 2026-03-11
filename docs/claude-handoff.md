@@ -46,6 +46,8 @@
 - `Dramatiq`
   - 异步任务执行框架
   - 当前项目不是 `Celery`
+- 如果未来要切 `Celery`
+  - 先看 [celery-migration.md](/home/ysnow/workspaces/app/minutes/docs/celery-migration.md)
 
 ### 媒体 / 推理
 

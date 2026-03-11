@@ -97,6 +97,7 @@ docker compose up --build
 如果后续需要让 Claude / Codex 快速接手项目，优先读这份文档：
 
 - [claude-handoff.md](/home/ysnow/workspaces/app/minutes/docs/claude-handoff.md)
+- [celery-migration.md](/home/ysnow/workspaces/app/minutes/docs/celery-migration.md)
 
 ## 已验证内容
 - `pytest -q`：当前 `17 passed`
