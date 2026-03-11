@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minutes"
+version = "0.1.0"
+description = "Containerized ASR backend for long-form meeting transcription."
+readme = "docs/plans/2026-03-11-minutes-backend-implementation.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14.1",
+  "dramatiq[redis]>=1.17.1",
+  "fastapi>=0.115.11",
+  "httpx>=0.28.1",
+  "loguru>=0.7.3",
+  "orjson>=3.10.15",
+  "pydantic>=2.10.6",
+  "pydantic-settings>=2.7.1",
+  "python-multipart>=0.0.20",
+  "redis>=5.2.1",
+  "sqlalchemy>=2.0.38",
+  "sse-starlette>=2.2.1",
+  "uvicorn[standard]>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "anyio>=4.8.0",
+  "pytest>=8.3.4",
+  "pytest-asyncio>=0.25.3",
+  "pytest-cov>=6.0.0",
+]
+inference = [
+  "funasr>=1.1.14",
+  "modelscope>=1.23.2",
+  "torch>=2.6.0",
+]
+
+[project.scripts]
+minutes-gateway = "minutes_gateway.app:main"
+minutes-db-init = "minutes_core.db:init_database_cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/minutes_core", "src/minutes_gateway", "src/minutes_orchestrator", "src/minutes_inference"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
