@@ -79,10 +79,15 @@ class FunASREngine:
         return self.model_pool.get_or_create(cache_key, _loader)
 
     def _resolve_model_path(self, model_id: str) -> str:
-        """如果 model_cache_dir 下存在对应目录，返回本地路径；否则返回原始 model ID 走 ModelScope 下载。"""
-        local = self.settings.model_cache_dir / model_id
-        if local.is_dir():
-            return str(local)
+        """如果 model_cache_dir 下存在对应目录，返回本地路径；否则返回原始 model ID 走 ModelScope 下载。
+
+        按优先级搜索：直接路径、ModelScope 新版 (models/) 和旧版 (hub/) 缓存布局。
+        """
+        cache = self.settings.model_cache_dir
+        for prefix in ("", "models/", "hub/"):
+            candidate = cache / prefix / model_id
+            if candidate.is_dir():
+                return str(candidate)
         return model_id
 
     @staticmethod
