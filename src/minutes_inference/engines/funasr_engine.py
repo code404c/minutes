@@ -65,18 +65,25 @@ class FunASREngine:
 
             profile = get_profile_spec(cache_key)
             model_kwargs: dict[str, Any] = {
-                "model": profile.asr_model_id,
-                "vad_model": profile.vad_model_id,
+                "model": self._resolve_model_path(profile.asr_model_id),
+                "vad_model": self._resolve_model_path(profile.vad_model_id),
                 "device": self.settings.inference_device,
                 "trust_remote_code": True,
             }
             if profile.punc_model_id:
-                model_kwargs["punc_model"] = profile.punc_model_id
+                model_kwargs["punc_model"] = self._resolve_model_path(profile.punc_model_id)
             if profile.speaker_model_id:
-                model_kwargs["spk_model"] = profile.speaker_model_id
+                model_kwargs["spk_model"] = self._resolve_model_path(profile.speaker_model_id)
             return AutoModel(**model_kwargs)
 
         return self.model_pool.get_or_create(cache_key, _loader)
+
+    def _resolve_model_path(self, model_id: str) -> str:
+        """如果 model_cache_dir 下存在对应目录，返回本地路径；否则返回原始 model ID 走 ModelScope 下载。"""
+        local = self.settings.model_cache_dir / model_id
+        if local.is_dir():
+            return str(local)
+        return model_id
 
     @staticmethod
     def _build_segments(
