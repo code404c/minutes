@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from sqlalchemy.orm import sessionmaker
 
 from minutes_core.config import Settings
 from minutes_core.db import create_session_factory, init_database
@@ -42,8 +44,20 @@ class RecordingEventBus:
         self.events.append((event.stage, event.status.value, event.progress))
 
 
+@dataclass(slots=True)
+class ServiceEnv:
+    """Orchestrator/Inference 测试的共享基础设施。"""
+
+    settings: Settings
+    session_factory: sessionmaker
+    queue: RecordingQueue
+    events: RecordingEventBus
+    tmp_path: Path
+    media_path: Path
+
+
 @pytest.fixture
-def service_env(tmp_path):
+def service_env(tmp_path) -> ServiceEnv:
     """创建 Orchestrator/Inference 测试所需的基础设施。"""
     media_path = tmp_path / "input.wav"
     media_path.write_bytes(b"fake-audio")
@@ -59,35 +73,35 @@ def service_env(tmp_path):
     queue = RecordingQueue()
     events = RecordingEventBus()
 
-    return {
-        "settings": settings,
-        "session_factory": session_factory,
-        "queue": queue,
-        "events": events,
-        "tmp_path": tmp_path,
-        "media_path": media_path,
-    }
+    return ServiceEnv(
+        settings=settings,
+        session_factory=session_factory,
+        queue=queue,
+        events=events,
+        tmp_path=tmp_path,
+        media_path=media_path,
+    )
 
 
 def create_test_job(
-    session_factory,
-    tmp_path: Path,
-    media_path: Path,
+    env: ServiceEnv,
     *,
     sync_mode: bool = False,
     job_id: str | None = None,
+    media_path: Path | None = None,
 ) -> str:
     """在数据库中创建一个测试用的 job 并返回其 ID。"""
     jid = job_id or str(uuid.uuid4())
-    output_dir = tmp_path / "artifacts" / jid
+    source = media_path or env.media_path
+    output_dir = env.tmp_path / "artifacts" / jid
     output_dir.mkdir(parents=True, exist_ok=True)
-    with session_factory() as session:
+    with env.session_factory() as session:
         detail = JobRepository(session).create_job(
             JobCreate(
                 job_id=jid,
-                source_filename=media_path.name,
+                source_filename=source.name,
                 source_content_type="audio/wav",
-                source_path=str(media_path),
+                source_path=str(source),
                 output_dir=str(output_dir),
                 profile=JobProfile.CN_MEETING,
                 language="zh",

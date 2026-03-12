@@ -58,7 +58,7 @@ async def _await_job_completion(
         # 任务失败处理
         if detail.status == JobStatus.FAILED:
             if detail.error_code == "SYNC_DURATION_LIMIT_EXCEEDED":
-                raise HTTPException(status_code=422, detail=detail.error_message)
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail.error_message)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail.error_message or "Job failed."
             )

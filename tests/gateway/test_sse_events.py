@@ -121,7 +121,11 @@ def test_stream_events_completed_job_has_empty_payload(gateway_harness_factory) 
 
 
 def _parse_sse_events(text: str) -> list[dict[str, str]]:
-    """解析 SSE 文本格式，返回事件列表。兼容 CRLF 和 LF 换行。"""
+    """解析 SSE 文本格式，返回事件列表。兼容 CRLF 和 LF 换行。
+
+    注意：仅处理单行 data: 字段。SSE 规范允许多个 data: 行拼接，
+    但本项目所有事件 data 都是单行 JSON，此处不做多行合并。
+    """
     events: list[dict[str, str]] = []
     current: dict[str, str] = {}
     for raw_line in text.split("\n"):

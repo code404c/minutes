@@ -11,7 +11,11 @@ from .conftest import build_transcript_document
 
 
 def _complete_job(session_factory, stage: str, job_id: str) -> None:
-    """在 dispatch 回调中直接完成任务（模拟 worker 处理结果）。"""
+    """在 dispatch 回调中直接完成任务（模拟 worker 处理结果）。
+
+    save_result 内部会自动设置 status=COMPLETED + progress=100，
+    因此跳过 TRANSCRIBING → POSTPROCESSING 流转是安全的。
+    """
     if stage != "prepare":
         return
     with session_factory() as session:
