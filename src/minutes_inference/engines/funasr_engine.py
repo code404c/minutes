@@ -83,7 +83,7 @@ class FunASREngine:
 
         按优先级搜索：直接路径、ModelScope 新版 (models/) 和旧版 (hub/) 缓存布局。
         """
-        cache = self.settings.model_cache_dir
+        cache = self.settings.model_cache_dir.expanduser()
         for prefix in ("", "models/", "hub/"):
             candidate = cache / prefix / model_id
             if candidate.is_dir():
