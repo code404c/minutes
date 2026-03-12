@@ -36,6 +36,7 @@ inference = [
   "funasr>=1.1.14",
   "modelscope>=1.23.2",
   "torch>=2.6.0",
+  "torchaudio>=2.6.0",
 ]
 
 [project.scripts]
