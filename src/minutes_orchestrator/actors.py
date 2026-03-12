@@ -14,9 +14,9 @@ settings = get_settings()
 configure_broker(settings.redis_url)
 
 # 任务重试与超时限制配置
-MAX_RETRIES = 2            # 最大重试次数
+MAX_RETRIES = 2  # 最大重试次数
 TIME_LIMIT_MS = 1_800_000  # 单次运行时间限制（30分钟）
-MAX_AGE_MS = 3_600_000     # 任务在队列中的最大存活时间（1小时）
+MAX_AGE_MS = 3_600_000  # 任务在队列中的最大存活时间（1小时）
 
 _service: OrchestratorService | None = None
 _service_lock = threading.Lock()

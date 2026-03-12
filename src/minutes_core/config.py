@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     应用程序配置类。
     支持从环境变量（前缀为 MINUTES_）或 .env 文件中读取。
     """
+
     model_config = SettingsConfigDict(env_prefix="MINUTES_", env_file=".env", extra="ignore")
 
     # 服务基本信息
@@ -43,10 +44,10 @@ class Settings(BaseSettings):
 
     # 模型与推理配置
     model_cache_dir: Path = Path("/modelscope-cache")  # 模型下载和缓存目录
-    model_ttl_seconds: int = 900                       # 模型在显存中的保留时间（秒）
-    inference_device: str = "cuda:0"                   # 推理所使用的设备（如 cuda:0 或 cpu）
+    model_ttl_seconds: int = 900  # 模型在显存中的保留时间（秒）
+    inference_device: str = "cuda:0"  # 推理所使用的设备（如 cuda:0 或 cpu）
     gateway_public_base_url: str = "http://localhost:8000"  # 网关服务的公共访问 URL
-    fake_inference: bool = False                       # 是否使用模拟推理（测试用）
+    fake_inference: bool = False  # 是否使用模拟推理（测试用）
 
     @property
     def uploads_dir(self) -> Path:

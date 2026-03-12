@@ -52,13 +52,18 @@ class FakeDispatcher:
 class FakeEventBus:
     def __init__(self) -> None:
         self.published: list[tuple[str, str]] = []
+        self.pending_messages: dict[str, list[str]] = {}
 
     def publish(self, event: Any) -> None:
         self.published.append((str(getattr(event, "job_id", "")), str(getattr(event, "event", ""))))
 
-    async def subscribe(self, _job_id: str):  # type: ignore[no-untyped-def]
-        if False:
-            yield ""
+    def enqueue_message(self, job_id: str, message_json: str) -> None:
+        """预填充一条消息，供 subscribe 异步产出。"""
+        self.pending_messages.setdefault(job_id, []).append(message_json)
+
+    async def subscribe(self, job_id: str):  # type: ignore[no-untyped-def]
+        for msg in self.pending_messages.get(job_id, []):
+            yield msg
 
 
 @dataclass(slots=True)

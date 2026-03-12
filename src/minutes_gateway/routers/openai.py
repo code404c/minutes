@@ -37,7 +37,7 @@ async def _await_job_completion(
 ) -> object:
     """
     内部辅助方法：轮询数据库以等待任务完成（用于同步 API）。
-    
+
     Args:
         repository: 任务仓库。
         job_id: 任务 ID。
@@ -50,22 +50,22 @@ async def _await_job_completion(
         detail = repository.get_job(job_id)
         if detail is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job disappeared.")
-        
+
         # 任务成功完成
         if detail.status == JobStatus.COMPLETED and detail.result is not None:
             return detail.result
-        
+
         # 任务失败处理
         if detail.status == JobStatus.FAILED:
             if detail.error_code == "SYNC_DURATION_LIMIT_EXCEEDED":
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail.error_message)
+                raise HTTPException(status_code=422, detail=detail.error_message)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail.error_message or "Job failed."
             )
-        
+
         # 稍作等待后继续轮询
         await asyncio.sleep(0.2)
-        
+
     raise HTTPException(
         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
         detail="Timed out waiting for synchronous transcription.",
@@ -75,7 +75,7 @@ async def _await_job_completion(
 @router.post("/transcriptions")
 async def create_transcription(
     file: UploadFile = File(...),
-    model: str | None = Form(default=None), # 对应 Profile
+    model: str | None = Form(default=None),  # 对应 Profile
     language: str | None = Form(default=None),
     response_format: ResponseFormat = Form(default="json"),
     stream: bool = Form(default=False),
@@ -87,7 +87,7 @@ async def create_transcription(
 ) -> Response:
     """
     OpenAI 兼容的转录接口 (POST /v1/audio/transcriptions)。
-    
+
     该接口是同步的：它会接收文件，启动后台任务，然后阻塞连接直到任务完成或超时。
     """
     if stream:
@@ -117,7 +117,7 @@ async def create_transcription(
     session.commit()
     # 3. 触发异步处理
     queue_dispatcher.enqueue_prepare_job(detail.id)
-    
+
     # 4. 同步等待结果
     result = await _await_job_completion(repository, detail.id, timeout_seconds=settings.sync_wait_timeout_s)
 

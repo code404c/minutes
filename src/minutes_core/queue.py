@@ -11,6 +11,7 @@ class QueueDispatcher(Protocol):
     任务分发器的协议定义。
     规定了各个处理阶段的入队操作。
     """
+
     def enqueue_prepare_job(self, job_id: str) -> None:
         """将音频预处理任务入队"""
         ...
@@ -38,6 +39,7 @@ class DramatiqQueueDispatcher:
     基于 Dramatiq 的任务分发器实现。
     负责将具体的任务发送到对应的 Actor 队列中。
     """
+
     def enqueue_prepare_job(self, job_id: str) -> None:
         """发送预处理请求"""
         from minutes_orchestrator.actors import prepare_job_actor

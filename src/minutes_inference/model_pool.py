@@ -13,6 +13,7 @@ class PoolEntry[T]:
 
     用于存储实际的模型对象以及它最后一次被使用的时间戳。
     """
+
     value: T
     last_used: float
 
@@ -34,7 +35,7 @@ class TTLModelPool[T]:
         """
         self.ttl_seconds = ttl_seconds
         self._entries: dict[str, PoolEntry[T]] = {}
-        self._lock = threading.Lock() # 用于保证线程安全的锁
+        self._lock = threading.Lock()  # 用于保证线程安全的锁
 
     def get(self, key: str) -> T | None:
         """

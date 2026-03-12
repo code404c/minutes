@@ -42,7 +42,7 @@ def create_app(
 ) -> FastAPI:
     """
     创建并配置 FastAPI 应用实例。
-    
+
     该工厂函数负责：
     1. 加载配置和配置日志。
     2. 初始化数据库会话工厂、队列分发器和事件总线。
@@ -52,7 +52,7 @@ def create_app(
     settings = settings or get_settings()
     # 配置结构化日志
     configure_logging(service_name="gateway", log_level=settings.log_level, serialize=settings.log_json)
-    
+
     # 核心组件初始化
     session_factory = session_factory or create_session_factory(settings)
     queue_dispatcher = queue_dispatcher or DramatiqQueueDispatcher()
@@ -62,7 +62,7 @@ def create_app(
         title="Minutes Gateway",
         lifespan=lifespan,
     )
-    
+
     # 将组件挂载到应用状态空间，方便后续通过 Dependency Injection 获取
     app.state.settings = settings
     app.state.session_factory = session_factory

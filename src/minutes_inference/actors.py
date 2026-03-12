@@ -14,8 +14,8 @@ configure_broker(settings.redis_url)
 
 # 定义任务重试和超时策略
 MAX_RETRIES = 2
-TIME_LIMIT_MS = 1_800_000 # 单次任务时间限制：30分钟
-MAX_AGE_MS = 3_600_000    # 任务最大有效期：1小时
+TIME_LIMIT_MS = 1_800_000  # 单次任务时间限制：30分钟
+MAX_AGE_MS = 3_600_000  # 任务最大有效期：1小时
 
 # 使用线程锁确保推理服务的单例初始化（对于加载大型模型至关重要）
 _service: InferenceService | None = None
@@ -25,7 +25,7 @@ _service_lock = threading.Lock()
 def get_inference_service() -> InferenceService:
     """
     获取推理服务的单例。
-    
+
     在 Dramatiq Worker 进程内，该方法确保 InferenceService 只被初始化一次，
     从而避免重复加载大型 AI 模型。
     """
@@ -59,7 +59,7 @@ def _extract_retry_payload(
 def transcribe_job_actor(job_id: str) -> None:
     """
     执行转录任务的 Dramatiq Actor。
-    
+
     该 Actor 监听 'inference' 队列。当接收到 job_id 时，它会调用推理服务进行转录。
     如果执行失败，Dramatiq 会根据 max_retries 进行自动重试。
     """
@@ -70,7 +70,7 @@ def transcribe_job_actor(job_id: str) -> None:
 def handle_inference_retry_exhausted(message_data: dict[str, object], retry_data: dict[str, int]) -> None:
     """
     当任务重试次数耗尽时的错误处理 Actor。
-    
+
     它会将任务状态更新为 FAILED，并记录详细的重试失败信息。
     """
     job_id, retries, max_retries = _extract_retry_payload(message_data, retry_data)

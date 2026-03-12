@@ -12,6 +12,7 @@ from minutes_inference.model_pool import TTLModelPool
 
 class FunASRUnavailableError(RuntimeError):
     """当未安装 FunASR 库时抛出的异常。"""
+
     pass
 
 
@@ -51,13 +52,13 @@ class FunASREngine:
         profile = get_profile_spec(job.profile)
         # 从模型池中获取或加载模型
         model = self._get_or_load_model(profile.name.value)
-        
+
         # 准备推理参数
         generate_kwargs: dict[str, Any] = {
             "input": str(normalized_path),
             "cache": {},
             "language": job.language or profile.default_language,
-            "use_itn": True, # 使用逆文本标准化
+            "use_itn": True,  # 使用逆文本标准化
             "batch_size_s": 60,
             "merge_vad": True,
             "merge_length_s": 15,
@@ -75,11 +76,11 @@ class FunASREngine:
         item = results[0]
         full_text = str(item.get("text", "")).strip()
         sentence_info = item.get("sentence_info") or []
-        
+
         # 构建转录分段（Segments）和说话人信息（Speakers）
         segments = self._build_segments(sentence_info, full_text, job.duration_ms or 0)
         speakers = self._build_speakers(segments)
-        
+
         return TranscriptDocument(
             job_id=job.id,
             language=job.language or profile.default_language,
@@ -94,6 +95,7 @@ class FunASREngine:
         """
         内部方法：从模型池获取或通过加载器创建模型。
         """
+
         def _loader():
             """FunASR 模型加载逻辑。"""
             try:
@@ -123,7 +125,7 @@ class FunASREngine:
 
     def _resolve_model_path(self, model_id: str) -> str:
         """解析模型路径。
-        
+
         如果 model_cache_dir 下存在对应目录，返回本地路径；否则返回原始 model ID 走 ModelScope 下载。
         按优先级搜索：直接路径、ModelScope 新版 (models/) 和旧版 (hub/) 缓存布局。
         """

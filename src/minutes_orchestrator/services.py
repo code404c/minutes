@@ -39,6 +39,7 @@ class OrchestratorService:
     编排服务，负责协调任务的生命周期。
     包括音频预处理（标准化）、将任务分发给推理引擎、以及转写后的结果汇总与持久化。
     """
+
     def __init__(
         self,
         *,
@@ -63,12 +64,12 @@ class OrchestratorService:
             if detail is None:
                 logger.warning("Prepare job {} no longer exists.", job_id)
                 return
-            
+
             # 检查任务状态，防止重复执行
             if detail.status in _PREPARE_NOOP_STATUSES:
                 logger.info("Skipping prepare for job {} in status {}.", job_id, detail.status.value)
                 return
-            
+
             # 如果已经预处理过了，直接进入下一阶段
             if detail.status == JobStatus.PREPROCESSING and detail.normalized_path:
                 normalized_path = Path(detail.normalized_path)
@@ -80,7 +81,7 @@ class OrchestratorService:
                 self._set_progress(repository, session, job_id, progress=5)
                 # 探测媒体文件信息
                 probe = probe_media(Path(detail.source_path))
-                
+
                 # 同步模式限制（OpenAI 兼容接口通常有音频时长限制）
                 if detail.sync_mode and probe.duration_ms > SYNC_TRANSCRIPTION_MAX_DURATION_MS:
                     self._mark_failed(
@@ -97,7 +98,7 @@ class OrchestratorService:
                 # 执行转码：将音频转换为 16k, 单声道 WAV
                 normalized_path = Path(detail.output_dir) / "normalized.wav"
                 transcode_to_wav(Path(detail.source_path), normalized_path)
-                
+
                 # 更新数据库中的任务信息
                 repository.update_job(
                     job_id,
@@ -147,7 +148,7 @@ class OrchestratorService:
             if detail.result is not None:
                 logger.info("Skipping finalize for job {} because result already exists.", job_id)
                 return
-            
+
             # 确保推理引擎生成的原始结果文件存在
             if not raw_path.exists():
                 self._mark_failed(
@@ -160,20 +161,20 @@ class OrchestratorService:
                     stage="finalize",
                 )
                 return
-            
+
             try:
                 # 更新状态为后处理中
                 repository.update_job(job_id, status=JobStatus.POSTPROCESSING, progress=90)
                 session.commit()
                 self._publish(job_id, JobStatus.POSTPROCESSING, 90, "finalize", "Aggregating transcript.")
-                
+
                 # 读取并验证 JSON 结果
                 document = TranscriptDocument.model_validate_json(raw_path.read_text(encoding="utf-8"))
-                
+
                 # 将最终结果保存回数据库
                 repository.save_result(job_id, document)
                 session.commit()
-                
+
                 # 任务圆满完成
                 self._publish(job_id, JobStatus.COMPLETED, 100, "finalize", "Transcript completed.")
             except ValidationError as exc:
@@ -215,7 +216,7 @@ class OrchestratorService:
             message = f"{stage} failed after retries were exhausted."
             if max_retries is not None:
                 message = f"{message} retries={retries}/{max_retries}"
-            
+
             # 将任务标记为失败，并记录错误原因
             self._mark_failed(
                 repository,

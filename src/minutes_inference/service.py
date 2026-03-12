@@ -68,7 +68,7 @@ class InferenceService:
         with self.session_factory() as session:
             repository = JobRepository(session)
             detail = repository.get_job(job_id)
-            
+
             # 基础检查：任务是否存在、是否已经在处理中或已完成、是否缺少必要路径
             if detail is None:
                 logger.warning("Transcription job {} no longer exists.", job_id)
@@ -100,12 +100,12 @@ class InferenceService:
                         model_pool=self.model_pool,
                     )
                 )
-                
+
                 # 调用引擎进行转录
                 document = engine.transcribe(detail, Path(detail.normalized_path))
                 # 将转录结果保存为 JSON 文件
                 raw_path.write_text(document.model_dump_json(indent=2), encoding="utf-8")
-                
+
                 # 推理完成后更新进度到 85%
                 self._set_progress(repository, session, job_id, progress=85)
             except FunASRUnavailableError as exc:

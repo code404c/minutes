@@ -11,6 +11,7 @@ from minutes_core.profiles import resolve_profile
 from minutes_core.queue import QueueDispatcher
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import JobCreate, JobEvent, JobRead, TranscriptDocument
+from minutes_core.storage import StorageManager
 from minutes_gateway.dependencies import (
     get_db_session,
     get_event_bus,
@@ -50,17 +51,17 @@ def _content_for_export(document: TranscriptDocument, export_format: str) -> tup
 
 @router.post("/jobs", response_model=JobRead, status_code=status.HTTP_202_ACCEPTED)
 def create_job(
-    file: UploadFile = File(...), # 待处理的音频文件
-    profile: str | None = Form(default=None), # 模型配置（如 whisper, funasr）
-    language: str | None = Form(default=None), # 指定语言
-    hotwords: str | None = Form(default=None), # 识别热词
+    file: UploadFile = File(...),  # 待处理的音频文件
+    profile: str | None = Form(default=None),  # 模型配置（如 whisper, funasr）
+    language: str | None = Form(default=None),  # 指定语言
+    hotwords: str | None = Form(default=None),  # 识别热词
     session=Depends(get_db_session),
     storage_manager: StorageManager = Depends(get_storage_manager),
     queue_dispatcher: QueueDispatcher = Depends(get_queue_dispatcher),
 ) -> JobRead:
     """
     创建转录任务。
-    
+
     1. 生成唯一的 job_id。
     2. 将上传的文件保存到持久化存储。
     3. 在数据库中创建任务记录。
@@ -130,7 +131,7 @@ async def stream_job_events(
 ) -> EventSourceResponse:
     """
     通过 Server-Sent Events (SSE) 实时订阅任务进度。
-    
+
     该接口会先发送当前状态的快照，然后持续推送后续的进度更新事件。
     """
     repository = JobRepository(session)

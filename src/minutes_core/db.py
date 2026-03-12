@@ -32,6 +32,7 @@ def create_engine_from_url(database_url: str, *, sqlite_busy_timeout_ms: int = 5
 
     # 针对 SQLite 连接的运行时 Pragmas 配置
     if database_url.startswith("sqlite"):
+
         @event.listens_for(engine, "connect")
         def _sqlite_pragmas(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
             cursor = dbapi_connection.cursor()

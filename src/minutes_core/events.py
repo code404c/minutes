@@ -15,6 +15,7 @@ class EventBus:
     事件总线，利用 Redis 的发布/订阅（Pub/Sub）机制。
     用于在系统内部组件间同步任务状态变化（例如：从计算节点通知网关）。
     """
+
     def __init__(self, redis_url: str) -> None:
         self.redis_url = redis_url
         # 同步 Redis 客户端，用于发布消息

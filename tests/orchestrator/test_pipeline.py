@@ -1,99 +1,40 @@
+"""音频预处理流水线测试。"""
+
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 from minutes_core.constants import JobStatus
-from minutes_core.db import create_session_factory, init_database
 from minutes_core.media import MediaProbe, MediaProcessingError
-from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
-from minutes_core.schemas import JobCreate
 from minutes_inference.service import InferenceService
 from minutes_orchestrator.services import OrchestratorService
 
-
-class RecordingQueue:
-    def __init__(self) -> None:
-        self.prepared: list[str] = []
-        self.transcribed: list[str] = []
-        self.finalized: list[str] = []
-
-    def enqueue_prepare_job(self, job_id: str) -> None:
-        self.prepared.append(job_id)
-
-    def enqueue_transcription_job(self, job_id: str) -> None:
-        self.transcribed.append(job_id)
-
-    def enqueue_finalize_job(self, job_id: str) -> None:
-        self.finalized.append(job_id)
+from .conftest import create_test_job
 
 
-class RecordingEventBus:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str, int]] = []
+def test_prepare_job_normalizes_media_and_dispatches_transcription(service_env, monkeypatch) -> None:
+    e = service_env
+    job_id = create_test_job(e["session_factory"], e["tmp_path"], e["media_path"])
 
-    def publish(self, event) -> None:
-        self.events.append((event.stage, event.status.value, event.progress))
-
-
-def _create_job(session_factory, storage_root: Path, media_path: Path) -> str:
-    job_id = str(uuid.uuid4())
-    output_dir = storage_root / "artifacts" / job_id
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with session_factory() as session:
-        detail = JobRepository(session).create_job(
-            JobCreate(
-                job_id=job_id,
-                source_filename=media_path.name,
-                source_content_type="audio/wav",
-                source_path=str(media_path),
-                output_dir=str(output_dir),
-                profile=JobProfile.CN_MEETING,
-                language="zh",
-            )
-        )
-        session.commit()
-        return detail.id
-
-
-def test_prepare_job_normalizes_media_and_dispatches_transcription(tmp_path, monkeypatch) -> None:
-    media_path = tmp_path / "input.wav"
-    media_path.write_bytes(b"fake-audio")
-
-    from minutes_core.config import Settings
-
-    settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
-        storage_root=tmp_path,
-        redis_url="redis://unused:6379/0",
-        fake_inference=True,
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.probe_media",
+        lambda _p: MediaProbe(duration_ms=4_000, format_name="wav"),
     )
-    session_factory = create_session_factory(settings)
-    init_database(session_factory.kw["bind"])
-    queue = RecordingQueue()
-    events = RecordingEventBus()
-    job_id = _create_job(session_factory, tmp_path, media_path)
-
-    def fake_probe(_path: Path) -> MediaProbe:
-        return MediaProbe(duration_ms=4_000, format_name="wav")
-
-    def fake_transcode(_source: Path, output: Path) -> Path:
-        output.write_bytes(b"normalized")
-        return output
-
-    monkeypatch.setattr("minutes_orchestrator.services.probe_media", fake_probe)
-    monkeypatch.setattr("minutes_orchestrator.services.transcode_to_wav", fake_transcode)
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.transcode_to_wav",
+        lambda _s, output: output.write_bytes(b"normalized") or output,
+    )
 
     service = OrchestratorService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
     service.prepare_job(job_id)
 
-    with session_factory() as session:
+    with e["session_factory"]() as session:
         detail = JobRepository(session).get_job(job_id)
 
     assert detail is not None
@@ -101,160 +42,121 @@ def test_prepare_job_normalizes_media_and_dispatches_transcription(tmp_path, mon
     assert detail.duration_ms == 4_000
     assert detail.normalized_path is not None
     assert Path(detail.normalized_path).exists()
-    assert queue.transcribed == [job_id]
-    assert ("prepare", "preprocessing", 25) in events.events
+    assert e["queue"].transcribed == [job_id]
+    assert ("prepare", "preprocessing", 25) in e["events"].events
 
 
-def test_end_to_end_pipeline_completes_with_fake_inference(tmp_path, monkeypatch) -> None:
-    media_path = tmp_path / "input.wav"
-    media_path.write_bytes(b"fake-audio")
-
-    from minutes_core.config import Settings
-
-    settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
-        storage_root=tmp_path,
-        redis_url="redis://unused:6379/0",
-        fake_inference=True,
-    )
-    session_factory = create_session_factory(settings)
-    init_database(session_factory.kw["bind"])
-    queue = RecordingQueue()
-    events = RecordingEventBus()
-    job_id = _create_job(session_factory, tmp_path, media_path)
+def test_end_to_end_pipeline_completes_with_fake_inference(service_env, monkeypatch) -> None:
+    e = service_env
+    job_id = create_test_job(e["session_factory"], e["tmp_path"], e["media_path"])
 
     monkeypatch.setattr(
         "minutes_orchestrator.services.probe_media",
-        lambda _path: MediaProbe(duration_ms=3_000, format_name="wav"),
+        lambda _p: MediaProbe(duration_ms=3_000, format_name="wav"),
     )
     monkeypatch.setattr(
         "minutes_orchestrator.services.transcode_to_wav",
-        lambda _source, output: output.write_bytes(b"normalized") or output,
+        lambda _s, output: output.write_bytes(b"normalized") or output,
     )
 
     orchestrator = OrchestratorService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
     inference = InferenceService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
 
     orchestrator.prepare_job(job_id)
     inference.transcribe_job(job_id)
     orchestrator.finalize_job(job_id)
 
-    with session_factory() as session:
+    with e["session_factory"]() as session:
         detail = JobRepository(session).get_job(job_id)
 
     assert detail is not None
     assert detail.status == JobStatus.COMPLETED
     assert detail.result is not None
     assert "Fake transcript" in detail.result.full_text
-    assert queue.transcribed == [job_id]
-    assert queue.finalized == [job_id]
-    assert ("finalize", "completed", 100) in events.events
+    assert e["queue"].transcribed == [job_id]
+    assert e["queue"].finalized == [job_id]
+    assert ("finalize", "completed", 100) in e["events"].events
 
 
-def test_prepare_job_marks_failure_when_media_processing_errors(tmp_path, monkeypatch) -> None:
-    media_path = tmp_path / "broken.m4a"
-    media_path.write_bytes(b"broken")
+def test_prepare_job_marks_failure_when_media_processing_errors(service_env, monkeypatch) -> None:
+    e = service_env
+    # 用一个"坏"媒体文件覆盖
+    broken_path = e["tmp_path"] / "broken.m4a"
+    broken_path.write_bytes(b"broken")
+    job_id = create_test_job(e["session_factory"], e["tmp_path"], broken_path)
 
-    from minutes_core.config import Settings
-
-    settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
-        storage_root=tmp_path,
-        redis_url="redis://unused:6379/0",
-        fake_inference=True,
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.probe_media",
+        lambda _p: (_ for _ in ()).throw(MediaProcessingError("ffprobe failed")),
     )
-    session_factory = create_session_factory(settings)
-    init_database(session_factory.kw["bind"])
-    queue = RecordingQueue()
-    events = RecordingEventBus()
-    job_id = _create_job(session_factory, tmp_path, media_path)
-
-    def explode(_path: Path) -> MediaProbe:
-        raise MediaProcessingError("ffprobe failed")
-
-    monkeypatch.setattr("minutes_orchestrator.services.probe_media", explode)
 
     service = OrchestratorService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
     service.prepare_job(job_id)
 
-    with session_factory() as session:
+    with e["session_factory"]() as session:
         detail = JobRepository(session).get_job(job_id)
 
     assert detail is not None
     assert detail.status == JobStatus.FAILED
     assert detail.error_code == "MEDIA_PROCESSING_FAILED"
-    assert queue.transcribed == []
-    assert ("prepare", "failed", 0) in events.events
+    assert e["queue"].transcribed == []
+    assert ("prepare", "failed", 0) in e["events"].events
 
 
-def test_pipeline_stage_reentry_after_completion_is_noop(tmp_path, monkeypatch) -> None:
-    media_path = tmp_path / "input.wav"
-    media_path.write_bytes(b"fake-audio")
-
-    from minutes_core.config import Settings
-
-    settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
-        storage_root=tmp_path,
-        redis_url="redis://unused:6379/0",
-        fake_inference=True,
-    )
-    session_factory = create_session_factory(settings)
-    init_database(session_factory.kw["bind"])
-    queue = RecordingQueue()
-    events = RecordingEventBus()
-    job_id = _create_job(session_factory, tmp_path, media_path)
+def test_pipeline_stage_reentry_after_completion_is_noop(service_env, monkeypatch) -> None:
+    e = service_env
+    job_id = create_test_job(e["session_factory"], e["tmp_path"], e["media_path"])
 
     monkeypatch.setattr(
         "minutes_orchestrator.services.probe_media",
-        lambda _path: MediaProbe(duration_ms=3_000, format_name="wav"),
+        lambda _p: MediaProbe(duration_ms=3_000, format_name="wav"),
     )
     monkeypatch.setattr(
         "minutes_orchestrator.services.transcode_to_wav",
-        lambda _source, output: output.write_bytes(b"normalized") or output,
+        lambda _s, output: output.write_bytes(b"normalized") or output,
     )
 
     orchestrator = OrchestratorService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
     inference = InferenceService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=events,
-        queue_dispatcher=queue,
+        settings=e["settings"],
+        session_factory=e["session_factory"],
+        event_bus=e["events"],
+        queue_dispatcher=e["queue"],
     )
 
     orchestrator.prepare_job(job_id)
     inference.transcribe_job(job_id)
     orchestrator.finalize_job(job_id)
 
-    queue_snapshot = (list(queue.transcribed), list(queue.finalized))
+    queue_snapshot = (list(e["queue"].transcribed), list(e["queue"].finalized))
 
     orchestrator.prepare_job(job_id)
     inference.transcribe_job(job_id)
     orchestrator.finalize_job(job_id)
 
-    with session_factory() as session:
+    with e["session_factory"]() as session:
         detail = JobRepository(session).get_job(job_id)
 
     assert detail is not None
     assert detail.status == JobStatus.COMPLETED
-    assert queue_snapshot == (queue.transcribed, queue.finalized)
+    assert queue_snapshot == (e["queue"].transcribed, e["queue"].finalized)
