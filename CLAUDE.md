@@ -65,6 +65,16 @@ Pipeline:
   - 先 `make download-models`
   - 再 `make smoke-real AUDIO=/mnt/c/temp/meetings/demo.wav`
 
+## 测试基础设施
+
+- 共享 Fake / Builder / 断言: `tests/helpers.py`（`RecordingQueue`, `RecordingEventBus`, `build_transcript_document`, `extract_job_id`, `error_message`, `assert_reasonable_error`）
+- Orchestrator/Inference 服务环境: `tests/orchestrator/conftest.py`（`ServiceEnv` + `create_test_job` + `service_env` fixture）
+  - `ServiceEnv.make_orchestrator()` / `make_inference()` / `get_job()` 减少样板代码
+  - Inference 测试通过 `tests/inference/conftest.py` re-export `service_env` fixture
+- Gateway 测试环境: `tests/gateway/conftest.py`（`GatewayEnv` + `GatewayHarness` + `gateway_harness_factory` + `async_gateway_env`）
+- SSE 异步测试: `tests/gateway/test_sse_async.py`（使用 `httpx.AsyncClient` + `ASGITransport`）
+- FunASR 引擎测试: `tests/inference/test_funasr_engine.py`（静态方法 + transcribe + 模型加载 + 路径解析）
+
 ## 代码规范
 
 - 注释、文档字符串: 简体中文

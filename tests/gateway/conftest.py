@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import sys
@@ -7,7 +8,6 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +21,20 @@ from minutes_core.db import create_session_factory, init_database
 from minutes_core.media import MediaProbe
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
-from minutes_core.schemas import JobCreate, JobDetail, Segment, TranscriptDocument
+from minutes_core.schemas import JobCreate, JobDetail, TranscriptDocument
 from minutes_core.storage import StorageManager
+from tests.helpers import (
+    assert_reasonable_error as assert_reasonable_error,
+)
+from tests.helpers import (
+    build_transcript_document as build_transcript_document,
+)
+from tests.helpers import (
+    error_message as error_message,
+)
+from tests.helpers import (
+    extract_job_id as extract_job_id,
+)
 
 DispatchCallback = Callable[[sessionmaker[Session], str, str], None]
 
@@ -53,6 +65,7 @@ class FakeEventBus:
     def __init__(self) -> None:
         self.published: list[tuple[str, str]] = []
         self.pending_messages: dict[str, list[str]] = {}
+        self._block_event: asyncio.Event | None = None
 
     def publish(self, event: Any) -> None:
         self.published.append((str(getattr(event, "job_id", "")), str(getattr(event, "event", ""))))
@@ -61,9 +74,28 @@ class FakeEventBus:
         """预填充一条消息，供 subscribe 异步产出。"""
         self.pending_messages.setdefault(job_id, []).append(message_json)
 
+    def set_blocking(self) -> asyncio.Event:
+        """让 subscribe 在产出完预填充消息后阻塞，用于测试客户端断开。"""
+        self._block_event = asyncio.Event()
+        return self._block_event
+
     async def subscribe(self, job_id: str):  # type: ignore[no-untyped-def]
         for msg in self.pending_messages.get(job_id, []):
             yield msg
+        if self._block_event is not None:
+            await self._block_event.wait()
+
+
+@dataclass(slots=True)
+class GatewayEnv:
+    """Gateway 测试环境（不含 HTTP 客户端），可被同步和异步 harness 共用。"""
+
+    app: Any
+    dispatcher: FakeDispatcher
+    event_bus: FakeEventBus
+    session_factory: sessionmaker[Session]
+    settings: Settings
+    storage_manager: StorageManager
 
 
 @dataclass(slots=True)
@@ -128,70 +160,6 @@ class GatewayHarness:
             else:
                 stored = created
         return stored
-
-
-def build_transcript_document(job_id: str, *, text: str = "大家好，今天讨论项目排期。") -> TranscriptDocument:
-    return TranscriptDocument(
-        job_id=job_id,
-        language="zh",
-        full_text=text,
-        paragraphs=[text],
-        segments=[
-            Segment(
-                start_ms=0,
-                end_ms=1_800,
-                speaker_id="spk-1",
-                text="大家好，今天讨论项目排期。",
-                confidence=0.98,
-            ),
-            Segment(
-                start_ms=1_800,
-                end_ms=3_600,
-                speaker_id="spk-2",
-                text="先看预算，再看风险。",
-                confidence=0.95,
-            ),
-        ],
-        speakers=[],
-        model_profile=JobProfile.CN_MEETING,
-    )
-
-
-def extract_job_id(payload: dict[str, Any]) -> str:
-    for key in ("id", "job_id", "jobId"):
-        value = payload.get(key)
-        if isinstance(value, str) and value:
-            return value
-    raise AssertionError(f"response does not contain a job identifier: {payload}")
-
-
-def error_message(payload: dict[str, Any]) -> str:
-    if "detail" in payload:
-        detail = payload["detail"]
-        if isinstance(detail, str):
-            return detail
-        if isinstance(detail, dict):
-            for key in ("message", "error", "detail"):
-                value = detail.get(key)
-                if isinstance(value, str):
-                    return value
-    if "error" in payload:
-        error_obj = payload["error"]
-        if isinstance(error_obj, str):
-            return error_obj
-        if isinstance(error_obj, dict):
-            for key in ("message", "detail", "error"):
-                value = error_obj.get(key)
-                if isinstance(value, str):
-                    return value
-    return str(payload)
-
-
-def assert_reasonable_error(response, *, status: HTTPStatus | tuple[HTTPStatus, ...], contains: str) -> None:  # type: ignore[no-untyped-def]
-    expected = status if isinstance(status, tuple) else (status,)
-    assert response.status_code in {item.value for item in expected}
-    payload = response.json()
-    assert contains.lower() in error_message(payload).lower()
 
 
 def _purge_gateway_modules() -> None:
@@ -326,6 +294,79 @@ def _build_app(create_app: Callable[..., Any], **available_kwargs: Any) -> Any:
     return create_app(**kwargs)
 
 
+def _create_gateway_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    sync_wait_timeout_s: int = 1,
+    probe_duration_ms: int = 8_000,
+    on_dispatch: DispatchCallback | None = None,
+) -> GatewayEnv:
+    """创建 Gateway 测试环境（不含 HTTP 客户端）。"""
+    settings = _settings_for(tmp_path, sync_wait_timeout_s=sync_wait_timeout_s)
+    settings.storage_root.mkdir(parents=True, exist_ok=True)
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    dispatcher = FakeDispatcher(on_dispatch=on_dispatch)
+    event_bus = FakeEventBus()
+    session_factory = create_session_factory(settings)
+    dispatcher.session_factory = session_factory
+    init_database(session_factory.kw["bind"])
+    storage_manager = StorageManager(settings)
+
+    monkeypatch.setenv("MINUTES_DATABASE_URL", settings.database_url)
+    monkeypatch.setenv("MINUTES_STORAGE_ROOT", str(settings.storage_root))
+    monkeypatch.setenv("MINUTES_REDIS_URL", settings.redis_url)
+    monkeypatch.setenv("MINUTES_SYNC_WAIT_TIMEOUT_S", str(settings.sync_wait_timeout_s))
+    monkeypatch.setenv("MINUTES_GATEWAY_PUBLIC_BASE_URL", settings.gateway_public_base_url)
+    get_settings.cache_clear()
+
+    import minutes_core.media as media_module
+    import minutes_core.queue as queue_module
+
+    monkeypatch.setattr(
+        media_module,
+        "probe_media",
+        lambda _path: MediaProbe(duration_ms=probe_duration_ms, format_name="wav"),
+    )
+    monkeypatch.setattr(queue_module, "configure_broker", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(queue_module, "DramatiqQueueDispatcher", lambda: dispatcher)
+
+    app_module = _import_gateway_app_module()
+    create_app = getattr(app_module, "create_app", None)
+    if not callable(create_app):
+        pytest.skip("minutes_gateway.app:create_app is not implemented yet")
+
+    app = _build_app(
+        create_app,
+        settings=settings,
+        session_factory=session_factory,
+        dispatcher=dispatcher,
+        queue_dispatcher=dispatcher,
+        storage_manager=storage_manager,
+        event_bus=event_bus,
+        testing=True,
+    )
+    _override_dependencies(
+        app,
+        settings=settings,
+        session_factory=session_factory,
+        dispatcher=dispatcher,
+        storage_manager=storage_manager,
+        event_bus=event_bus,
+    )
+
+    return GatewayEnv(
+        app=app,
+        dispatcher=dispatcher,
+        event_bus=event_bus,
+        session_factory=session_factory,
+        settings=settings,
+        storage_manager=storage_manager,
+    )
+
+
 @pytest.fixture
 def gateway_harness_factory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     @contextmanager
@@ -335,69 +376,28 @@ def gateway_harness_factory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         probe_duration_ms: int = 8_000,
         on_dispatch: DispatchCallback | None = None,
     ) -> Iterator[GatewayHarness]:
-        settings = _settings_for(tmp_path, sync_wait_timeout_s=sync_wait_timeout_s)
-        settings.storage_root.mkdir(parents=True, exist_ok=True)
-        settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-        settings.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-        dispatcher = FakeDispatcher(on_dispatch=on_dispatch)
-        event_bus = FakeEventBus()
-        session_factory = create_session_factory(settings)
-        dispatcher.session_factory = session_factory
-        init_database(session_factory.kw["bind"])
-        storage_manager = StorageManager(settings)
-
-        monkeypatch.setenv("MINUTES_DATABASE_URL", settings.database_url)
-        monkeypatch.setenv("MINUTES_STORAGE_ROOT", str(settings.storage_root))
-        monkeypatch.setenv("MINUTES_REDIS_URL", settings.redis_url)
-        monkeypatch.setenv("MINUTES_SYNC_WAIT_TIMEOUT_S", str(settings.sync_wait_timeout_s))
-        monkeypatch.setenv("MINUTES_GATEWAY_PUBLIC_BASE_URL", settings.gateway_public_base_url)
-        get_settings.cache_clear()
-
-        import minutes_core.media as media_module
-        import minutes_core.queue as queue_module
-
-        monkeypatch.setattr(
-            media_module,
-            "probe_media",
-            lambda _path: MediaProbe(duration_ms=probe_duration_ms, format_name="wav"),
+        env = _create_gateway_env(
+            monkeypatch,
+            tmp_path,
+            sync_wait_timeout_s=sync_wait_timeout_s,
+            probe_duration_ms=probe_duration_ms,
+            on_dispatch=on_dispatch,
         )
-        monkeypatch.setattr(queue_module, "configure_broker", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr(queue_module, "DramatiqQueueDispatcher", lambda: dispatcher)
-
-        app_module = _import_gateway_app_module()
-        create_app = getattr(app_module, "create_app", None)
-        if not callable(create_app):
-            pytest.skip("minutes_gateway.app:create_app is not implemented yet")
-
-        app = _build_app(
-            create_app,
-            settings=settings,
-            session_factory=session_factory,
-            dispatcher=dispatcher,
-            queue_dispatcher=dispatcher,
-            storage_manager=storage_manager,
-            event_bus=event_bus,
-            testing=True,
-        )
-        _override_dependencies(
-            app,
-            settings=settings,
-            session_factory=session_factory,
-            dispatcher=dispatcher,
-            storage_manager=storage_manager,
-            event_bus=event_bus,
-        )
-
-        with TestClient(app) as client:
+        with TestClient(env.app) as client:
             yield GatewayHarness(
-                app=app,
+                app=env.app,
                 client=client,
-                dispatcher=dispatcher,
-                event_bus=event_bus,
-                session_factory=session_factory,
-                settings=settings,
-                storage_manager=storage_manager,
+                dispatcher=env.dispatcher,
+                event_bus=env.event_bus,
+                session_factory=env.session_factory,
+                settings=env.settings,
+                storage_manager=env.storage_manager,
             )
 
     return factory
+
+
+@pytest.fixture
+def async_gateway_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> GatewayEnv:
+    """创建不含同步 TestClient 的 Gateway 环境，用于 httpx.AsyncClient 异步测试。"""
+    return _create_gateway_env(monkeypatch, tmp_path)

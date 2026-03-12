@@ -6,33 +6,7 @@ from minutes_core.constants import JobStatus
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
 
-from .conftest import build_transcript_document
-
-
-def _error_message(payload: dict[str, object]) -> str:
-    detail = payload.get("detail")
-    if isinstance(detail, str):
-        return detail
-    if isinstance(detail, dict):
-        for key in ("message", "error", "detail"):
-            value = detail.get(key)
-            if isinstance(value, str):
-                return value
-    error = payload.get("error")
-    if isinstance(error, str):
-        return error
-    if isinstance(error, dict):
-        for key in ("message", "detail", "error"):
-            value = error.get(key)
-            if isinstance(value, str):
-                return value
-    return str(payload)
-
-
-def _assert_reasonable_error(response, *, status: HTTPStatus | tuple[HTTPStatus, ...], contains: str) -> None:  # type: ignore[no-untyped-def]
-    expected = status if isinstance(status, tuple) else (status,)
-    assert response.status_code in {item.value for item in expected}
-    assert contains.lower() in _error_message(response.json()).lower()
+from .conftest import assert_reasonable_error, build_transcript_document
 
 
 def _post_transcription(client, *, stream: bool | None = None):  # type: ignore[no-untyped-def]
@@ -50,14 +24,14 @@ def test_openai_transcriptions_rejects_stream_true(gateway_harness_factory) -> N
     with gateway_harness_factory() as harness:
         response = _post_transcription(harness.client, stream=True)
 
-    _assert_reasonable_error(response, status=HTTPStatus.BAD_REQUEST, contains="stream")
+    assert_reasonable_error(response, status=HTTPStatus.BAD_REQUEST, contains="stream")
 
 
 def test_openai_transcriptions_returns_timeout_error(gateway_harness_factory) -> None:
     with gateway_harness_factory(sync_wait_timeout_s=1) as harness:
         response = _post_transcription(harness.client)
 
-    _assert_reasonable_error(response, status=HTTPStatus.GATEWAY_TIMEOUT, contains="timed out")
+    assert_reasonable_error(response, status=HTTPStatus.GATEWAY_TIMEOUT, contains="timed out")
 
 
 def test_openai_transcriptions_returns_failed_job_error(gateway_harness_factory) -> None:
@@ -76,7 +50,7 @@ def test_openai_transcriptions_returns_failed_job_error(gateway_harness_factory)
     with gateway_harness_factory(on_dispatch=fail_job) as harness:
         response = _post_transcription(harness.client)
 
-    _assert_reasonable_error(
+    assert_reasonable_error(
         response,
         status=HTTPStatus.INTERNAL_SERVER_ERROR,
         contains="transcription backend crashed",

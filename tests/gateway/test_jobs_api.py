@@ -4,40 +4,8 @@ from http import HTTPStatus
 
 from minutes_core.constants import JobStatus
 from minutes_core.profiles import JobProfile
-from minutes_core.schemas import Segment, TranscriptDocument
 
-
-def _build_transcript_document(job_id: str) -> TranscriptDocument:
-    return TranscriptDocument(
-        job_id=job_id,
-        language="zh",
-        full_text="大家好，今天讨论项目排期。",
-        paragraphs=["大家好，今天讨论项目排期。"],
-        segments=[
-            Segment(
-                start_ms=0,
-                end_ms=1800,
-                speaker_id="spk-1",
-                text="大家好，今天讨论项目排期。",
-                confidence=0.98,
-            ),
-            Segment(
-                start_ms=1800,
-                end_ms=3600,
-                speaker_id="spk-2",
-                text="先看预算，再看风险。",
-                confidence=0.95,
-            ),
-        ],
-        speakers=[],
-        model_profile=JobProfile.CN_MEETING,
-    )
-
-
-def _extract_job_id(payload: dict[str, object]) -> str:
-    value = payload.get("id")
-    assert isinstance(value, str) and value
-    return value
+from .conftest import build_transcript_document, extract_job_id
 
 
 def test_health_returns_healthy_status(gateway_harness_factory) -> None:
@@ -64,7 +32,7 @@ def test_post_jobs_creates_job_and_dispatches_work(gateway_harness_factory) -> N
 
         assert response.status_code == HTTPStatus.ACCEPTED
         payload = response.json()
-        job_id = _extract_job_id(payload)
+        job_id = extract_job_id(payload)
 
         assert payload["status"] == JobStatus.QUEUED.value
         assert ("prepare", job_id) in harness.dispatcher.calls
@@ -95,7 +63,7 @@ def test_get_job_returns_current_job_state(gateway_harness_factory) -> None:
 
 def test_get_job_transcript_returns_completed_document(gateway_harness_factory) -> None:
     with gateway_harness_factory() as harness:
-        job = harness.create_job(result=_build_transcript_document("placeholder"))
+        job = harness.create_job(result=build_transcript_document("placeholder"))
         response = harness.client.get(f"/api/v1/jobs/{job.id}/transcript")
 
     assert response.status_code == HTTPStatus.OK

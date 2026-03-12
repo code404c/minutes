@@ -1,73 +1,24 @@
+"""Orchestrator retry exhausted 测试。"""
+
 from __future__ import annotations
 
-from minutes_core.config import Settings
 from minutes_core.constants import JobStatus
-from minutes_core.db import create_session_factory, init_database
-from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
-from minutes_core.schemas import JobCreate
-from minutes_orchestrator.services import OrchestratorService
+
+from .conftest import ServiceEnv, create_test_job
 
 
-class RecordingQueue:
-    def enqueue_prepare_job(self, _job_id: str) -> None:
-        return None
-
-    def enqueue_transcription_job(self, _job_id: str) -> None:
-        return None
-
-    def enqueue_finalize_job(self, _job_id: str) -> None:
-        return None
-
-
-class RecordingEventBus:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str]] = []
-
-    def publish(self, event) -> None:
-        self.events.append((event.status.value, event.stage))
-
-
-def test_mark_retry_exhausted_marks_prepare_job_failed(tmp_path) -> None:
-    settings = Settings(
-        database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
-        storage_root=tmp_path,
-        redis_url="redis://unused:6379/0",
-        fake_inference=True,
-    )
-    session_factory = create_session_factory(settings)
-    init_database(session_factory.kw["bind"])
-
-    with session_factory() as session:
-        repo = JobRepository(session)
-        created = repo.create_job(
-            JobCreate(
-                job_id="job-prepare",
-                source_filename="meeting.wav",
-                source_content_type="audio/wav",
-                source_path=str(tmp_path / "meeting.wav"),
-                output_dir=str(tmp_path / "artifacts"),
-                profile=JobProfile.CN_MEETING,
-                language="zh",
-            )
-        )
-        repo.update_job(created.id, status=JobStatus.PREPROCESSING, progress=5)
+def test_mark_retry_exhausted_marks_prepare_job_failed(service_env: ServiceEnv) -> None:
+    e = service_env
+    job_id = create_test_job(e, job_id="job-prepare")
+    with e.session_factory() as session:
+        JobRepository(session).update_job(job_id, status=JobStatus.PREPROCESSING, progress=5)
         session.commit()
 
-    event_bus = RecordingEventBus()
-    service = OrchestratorService(
-        settings=settings,
-        session_factory=session_factory,
-        event_bus=event_bus,
-        queue_dispatcher=RecordingQueue(),
-    )
+    e.make_orchestrator().mark_retry_exhausted("job-prepare", stage="prepare", retries=2, max_retries=2)
 
-    service.mark_retry_exhausted("job-prepare", stage="prepare", retries=2, max_retries=2)
-
-    with session_factory() as session:
-        detail = JobRepository(session).get_job("job-prepare")
-
+    detail = e.get_job("job-prepare")
     assert detail is not None
     assert detail.status == JobStatus.FAILED
     assert detail.error_code == "PREPARE_RETRY_EXHAUSTED"
-    assert ("failed", "prepare") in event_bus.events
+    assert e.events.has_event("failed", "prepare")

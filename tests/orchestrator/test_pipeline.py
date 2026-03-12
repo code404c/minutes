@@ -6,9 +6,6 @@ from pathlib import Path
 
 from minutes_core.constants import JobStatus
 from minutes_core.media import MediaProbe, MediaProcessingError
-from minutes_core.repositories import JobRepository
-from minutes_inference.service import InferenceService
-from minutes_orchestrator.services import OrchestratorService
 
 from .conftest import ServiceEnv, create_test_job
 
@@ -26,17 +23,9 @@ def test_prepare_job_normalizes_media_and_dispatches_transcription(service_env: 
         lambda _s, output: output.write_bytes(b"normalized") or output,
     )
 
-    service = OrchestratorService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
-    service.prepare_job(job_id)
+    e.make_orchestrator().prepare_job(job_id)
 
-    with e.session_factory() as session:
-        detail = JobRepository(session).get_job(job_id)
-
+    detail = e.get_job(job_id)
     assert detail is not None
     assert detail.status == JobStatus.PREPROCESSING
     assert detail.duration_ms == 4_000
@@ -59,26 +48,14 @@ def test_end_to_end_pipeline_completes_with_fake_inference(service_env: ServiceE
         lambda _s, output: output.write_bytes(b"normalized") or output,
     )
 
-    orchestrator = OrchestratorService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
-    inference = InferenceService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
+    orchestrator = e.make_orchestrator()
+    inference = e.make_inference()
 
     orchestrator.prepare_job(job_id)
     inference.transcribe_job(job_id)
     orchestrator.finalize_job(job_id)
 
-    with e.session_factory() as session:
-        detail = JobRepository(session).get_job(job_id)
-
+    detail = e.get_job(job_id)
     assert detail is not None
     assert detail.status == JobStatus.COMPLETED
     assert detail.result is not None
@@ -99,17 +76,9 @@ def test_prepare_job_marks_failure_when_media_processing_errors(service_env: Ser
 
     monkeypatch.setattr("minutes_orchestrator.services.probe_media", raise_media_error)
 
-    service = OrchestratorService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
-    service.prepare_job(job_id)
+    e.make_orchestrator().prepare_job(job_id)
 
-    with e.session_factory() as session:
-        detail = JobRepository(session).get_job(job_id)
-
+    detail = e.get_job(job_id)
     assert detail is not None
     assert detail.status == JobStatus.FAILED
     assert detail.error_code == "MEDIA_PROCESSING_FAILED"
@@ -130,18 +99,8 @@ def test_pipeline_stage_reentry_after_completion_is_noop(service_env: ServiceEnv
         lambda _s, output: output.write_bytes(b"normalized") or output,
     )
 
-    orchestrator = OrchestratorService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
-    inference = InferenceService(
-        settings=e.settings,
-        session_factory=e.session_factory,
-        event_bus=e.events,
-        queue_dispatcher=e.queue,
-    )
+    orchestrator = e.make_orchestrator()
+    inference = e.make_inference()
 
     orchestrator.prepare_job(job_id)
     inference.transcribe_job(job_id)
@@ -153,9 +112,7 @@ def test_pipeline_stage_reentry_after_completion_is_noop(service_env: ServiceEnv
     inference.transcribe_job(job_id)
     orchestrator.finalize_job(job_id)
 
-    with e.session_factory() as session:
-        detail = JobRepository(session).get_job(job_id)
-
+    detail = e.get_job(job_id)
     assert detail is not None
     assert detail.status == JobStatus.COMPLETED
     assert queue_snapshot == (e.queue.transcribed, e.queue.finalized)

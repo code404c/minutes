@@ -47,7 +47,7 @@ minutes-db-init = "minutes_core.db:init_database_cli"
 packages = ["src/minutes_core", "src/minutes_gateway", "src/minutes_orchestrator", "src/minutes_inference"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--cov=src --cov-report=term-missing"

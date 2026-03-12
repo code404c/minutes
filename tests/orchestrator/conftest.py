@@ -13,35 +13,10 @@ from minutes_core.config import Settings
 from minutes_core.db import create_session_factory, init_database
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
-from minutes_core.schemas import JobCreate
-
-
-class RecordingQueue:
-    """记录所有入队调用的 Fake 队列分发器。"""
-
-    def __init__(self) -> None:
-        self.prepared: list[str] = []
-        self.transcribed: list[str] = []
-        self.finalized: list[str] = []
-
-    def enqueue_prepare_job(self, job_id: str) -> None:
-        self.prepared.append(job_id)
-
-    def enqueue_transcription_job(self, job_id: str) -> None:
-        self.transcribed.append(job_id)
-
-    def enqueue_finalize_job(self, job_id: str) -> None:
-        self.finalized.append(job_id)
-
-
-class RecordingEventBus:
-    """记录所有发布事件的 Fake 事件总线。"""
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, str, int]] = []
-
-    def publish(self, event) -> None:  # type: ignore[no-untyped-def]
-        self.events.append((event.stage, event.status.value, event.progress))
+from minutes_core.schemas import JobCreate, JobDetail
+from minutes_inference.service import InferenceService
+from minutes_orchestrator.services import OrchestratorService
+from tests.helpers import RecordingEventBus, RecordingQueue
 
 
 @dataclass(slots=True)
@@ -54,6 +29,29 @@ class ServiceEnv:
     events: RecordingEventBus
     tmp_path: Path
     media_path: Path
+
+    def make_orchestrator(self) -> OrchestratorService:
+        """创建使用当前测试环境的 OrchestratorService。"""
+        return OrchestratorService(
+            settings=self.settings,
+            session_factory=self.session_factory,
+            event_bus=self.events,
+            queue_dispatcher=self.queue,
+        )
+
+    def make_inference(self) -> InferenceService:
+        """创建使用当前测试环境的 InferenceService。"""
+        return InferenceService(
+            settings=self.settings,
+            session_factory=self.session_factory,
+            event_bus=self.events,
+            queue_dispatcher=self.queue,
+        )
+
+    def get_job(self, job_id: str) -> JobDetail | None:
+        """便捷方法：从数据库获取 job 详情。"""
+        with self.session_factory() as session:
+            return JobRepository(session).get_job(job_id)
 
 
 @pytest.fixture
