@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from .conftest import build_transcript_document as build_transcript_document
-
 
 class TestLifespanClosesEventBus:
     """lifespan 生命周期在关闭时应调用 event_bus.close()。"""

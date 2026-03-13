@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import text
 
@@ -24,13 +25,23 @@ def test_get_session_yields_and_closes(tmp_path: Path) -> None:
     # session 应可用
     result = session.execute(text("SELECT 1"))
     assert result.scalar() == 1
-    # 结束生成器，触发 finally 中的 session.close()
-    try:
-        next(gen)
-    except StopIteration:
-        pass
-    # session 已关闭，不应再可用
-    assert session.is_active is False or True  # close() 已被调用
+    # 监控 session.close() 是否被调用
+    original_close = session.close
+    close_called = False
+
+    def tracking_close() -> None:
+        nonlocal close_called
+        close_called = True
+        original_close()
+
+    with patch.object(session, "close", tracking_close):
+        # 结束生成器，触发 finally 中的 session.close()
+        try:
+            next(gen)
+        except StopIteration:
+            pass
+
+    assert close_called, "session.close() should be called when generator exits"
 
 
 def test_get_session_closes_on_exception(tmp_path: Path) -> None:

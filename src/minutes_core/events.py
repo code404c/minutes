@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
+from redis.asyncio.client import PubSub
 
 from minutes_core.constants import JOB_EVENT_CHANNEL_PREFIX
 from minutes_core.schemas import JobEvent
@@ -35,7 +36,7 @@ class EventBus:
         self._client.publish(f"{self.channel_prefix}:{event.job_id}", event.model_dump_json())
 
     @asynccontextmanager
-    async def _pubsub_connection(self, channel: str) -> AsyncIterator[AsyncRedis]:
+    async def _pubsub_connection(self, channel: str) -> AsyncIterator[PubSub]:
         """
         管理异步 Redis PubSub 连接的生命周期。
         确保在任何退出路径下（包括异常）都能正确释放资源。
@@ -45,7 +46,7 @@ class EventBus:
             pubsub = client.pubsub()
             try:
                 await pubsub.subscribe(channel)
-                yield pubsub  # type: ignore[arg-type]
+                yield pubsub
             finally:
                 await pubsub.unsubscribe(channel)
                 await pubsub.close()
