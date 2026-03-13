@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from minutes_core.schemas import JobDetail, Segment, TranscriptDocument
+from minutes_core.schemas import JobDetail, Segment, Speaker, TranscriptDocument
 
 
 class FakeInferenceEngine:
@@ -23,12 +23,12 @@ class FakeInferenceEngine:
             ],
             paragraphs=[text],
             speakers=[
-                {
-                    "speaker_id": "speaker_1",
-                    "display_name": "Speaker 1",
-                    "segment_count": 1,
-                    "total_ms": max(job.duration_ms or 2000, 2000),
-                }
+                Speaker(
+                    speaker_id="speaker_1",
+                    display_name="Speaker 1",
+                    segment_count=1,
+                    total_ms=max(job.duration_ms or 2000, 2000),
+                )
             ],
             model_profile=job.profile,
         )

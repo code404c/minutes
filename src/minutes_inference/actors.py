@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 import dramatiq
+from loguru import logger
 
 from minutes_core.config import get_settings
 from minutes_core.queue import configure_broker
@@ -75,5 +76,13 @@ def handle_inference_retry_exhausted(message_data: dict[str, object], retry_data
     """
     job_id, retries, max_retries = _extract_retry_payload(message_data, retry_data)
     if job_id is None:
+        logger.warning("Retry exhausted but failed to extract job_id from inference message payload.")
         return
+
+    logger.warning(
+        "Retry exhausted for inference actor: job_id={}, retries={}, max_retries={}",
+        job_id,
+        retries,
+        max_retries,
+    )
     get_inference_service().mark_retry_exhausted(job_id, retries=retries, max_retries=max_retries)

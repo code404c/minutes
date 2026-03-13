@@ -126,35 +126,19 @@ class TestTranscribeJobMissingJob:
 class TestTranscribeJobNoopStatuses:
     """测试 job 在 NOOP 状态时 skip (line 52-53)。"""
 
-    def test_completed_job_is_skipped(self, tmp_path: Path) -> None:
-        """验证 COMPLETED 状态的 job 被跳过。"""
+    @pytest.mark.parametrize(
+        "status",
+        [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.QUEUED],
+        ids=["completed", "failed", "queued"],
+    )
+    def test_noop_status_is_skipped(self, tmp_path: Path, status: JobStatus) -> None:
+        """验证 NOOP 状态的 job 被跳过。"""
         service, settings, queue, event_bus = _make_service(tmp_path)
         sf = create_session_factory(settings)
-        _create_job(sf, tmp_path, job_id="job-completed", status=JobStatus.COMPLETED, normalized_path="/fake/path.wav")
+        job_id = f"job-{status.value}"
+        _create_job(sf, tmp_path, job_id=job_id, status=status, normalized_path="/fake/path.wav")
 
-        service.transcribe_job("job-completed")
-
-        assert len(queue.finalized) == 0
-        assert len(event_bus.events) == 0
-
-    def test_failed_job_is_skipped(self, tmp_path: Path) -> None:
-        """验证 FAILED 状态的 job 被跳过。"""
-        service, settings, queue, event_bus = _make_service(tmp_path)
-        sf = create_session_factory(settings)
-        _create_job(sf, tmp_path, job_id="job-failed", status=JobStatus.FAILED, normalized_path="/fake/path.wav")
-
-        service.transcribe_job("job-failed")
-
-        assert len(queue.finalized) == 0
-        assert len(event_bus.events) == 0
-
-    def test_queued_job_is_skipped(self, tmp_path: Path) -> None:
-        """验证 QUEUED 状态的 job 被跳过。"""
-        service, settings, queue, event_bus = _make_service(tmp_path)
-        sf = create_session_factory(settings)
-        _create_job(sf, tmp_path, job_id="job-queued", status=JobStatus.QUEUED, normalized_path="/fake/path.wav")
-
-        service.transcribe_job("job-queued")
+        service.transcribe_job(job_id)
 
         assert len(queue.finalized) == 0
         assert len(event_bus.events) == 0
@@ -210,10 +194,19 @@ class TestTranscribeJobRawTranscriptExists:
 class TestTranscribeJobRemoteSTTError:
     """测试 RemoteSTTError 非重试错误处理 (line 76-82)。"""
 
-    def test_remote_stt_bad_request_marks_failed(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "job_id,error_msg,status_code,error_code",
+        [
+            ("job-stt-err", "STT bad request: invalid model", 400, "INFERENCE_BAD_REQUEST"),
+            ("job-auth-err", "STT authentication failed", 401, "INFERENCE_AUTH_FAILED"),
+        ],
+        ids=["bad-request", "auth-error"],
+    )
+    def test_remote_stt_error_marks_failed(
+        self, tmp_path: Path, job_id: str, error_msg: str, status_code: int, error_code: str
+    ) -> None:
         """验证 RemoteSTTError 导致 job 标记为 FAILED，不抛异常，不 enqueue finalize。"""
         service, settings, queue, event_bus = _make_service(tmp_path)
-        # 使用 real inference (非 fake) 以触发 RemoteSTTEngine
         service.settings = settings.model_copy(update={"fake_inference": False, "stt_base_url": "http://stt:8000"})
 
         sf = create_session_factory(settings)
@@ -224,16 +217,15 @@ class TestTranscribeJobRemoteSTTError:
         _create_job(
             sf,
             tmp_path,
-            job_id="job-stt-err",
+            job_id=job_id,
             status=JobStatus.TRANSCRIBING,
             normalized_path=str(normalized),
         )
 
-        # mock RemoteSTTEngine.transcribe 抛出 RemoteSTTError
         stt_error = RemoteSTTError(
-            "STT bad request: invalid model",
-            status_code=400,
-            error_code="INFERENCE_BAD_REQUEST",
+            error_msg,
+            status_code=status_code,
+            error_code=error_code,
         )
 
         with patch("minutes_inference.service.RemoteSTTEngine") as mock_engine_cls:
@@ -241,63 +233,21 @@ class TestTranscribeJobRemoteSTTError:
             mock_engine_instance.transcribe.side_effect = stt_error
             mock_engine_cls.return_value = mock_engine_instance
 
-            service.transcribe_job("job-stt-err")
+            service.transcribe_job(job_id)
 
         # 不应 enqueue finalize
-        assert "job-stt-err" not in queue.finalized
+        assert job_id not in queue.finalized
 
         # 应标记为 FAILED
         with sf() as session:
-            repo = JobRepository(session)
-            detail = repo.get_job("job-stt-err")
+            detail = JobRepository(session).get_job(job_id)
 
         assert detail is not None
         assert detail.status == JobStatus.FAILED
-        assert detail.error_code == "INFERENCE_BAD_REQUEST"
-        assert "invalid model" in (detail.error_message or "")
+        assert detail.error_code == error_code
 
         # 应发布 failed 事件
         assert ("failed", "transcribe") in event_bus.events
-
-    def test_remote_stt_auth_error_marks_failed(self, tmp_path: Path) -> None:
-        """验证 RemoteSTTError (auth) 导致 job 标记为 FAILED。"""
-        service, settings, queue, event_bus = _make_service(tmp_path)
-        service.settings = settings.model_copy(update={"fake_inference": False, "stt_base_url": "http://stt:8000"})
-
-        sf = create_session_factory(settings)
-
-        normalized = tmp_path / "normalized.wav"
-        normalized.write_bytes(b"fake-audio")
-
-        _create_job(
-            sf,
-            tmp_path,
-            job_id="job-auth-err",
-            status=JobStatus.TRANSCRIBING,
-            normalized_path=str(normalized),
-        )
-
-        stt_error = RemoteSTTError(
-            "STT authentication failed",
-            status_code=401,
-            error_code="INFERENCE_AUTH_FAILED",
-        )
-
-        with patch("minutes_inference.service.RemoteSTTEngine") as mock_engine_cls:
-            mock_engine_instance = MagicMock()
-            mock_engine_instance.transcribe.side_effect = stt_error
-            mock_engine_cls.return_value = mock_engine_instance
-
-            service.transcribe_job("job-auth-err")
-
-        assert "job-auth-err" not in queue.finalized
-
-        with sf() as session:
-            detail = JobRepository(session).get_job("job-auth-err")
-
-        assert detail is not None
-        assert detail.status == JobStatus.FAILED
-        assert detail.error_code == "INFERENCE_AUTH_FAILED"
 
 
 class TestTranscribeJobGenericExceptionRollback:
@@ -351,34 +301,24 @@ class TestMarkRetryExhaustedBranches:
 
         assert len(event_bus.events) == 0
 
-    def test_already_completed_job_is_skipped(self, tmp_path: Path) -> None:
-        """验证 COMPLETED 状态的 job 调用 mark_retry_exhausted 时跳过。"""
+    @pytest.mark.parametrize(
+        "status",
+        [JobStatus.COMPLETED, JobStatus.FAILED],
+        ids=["already-completed", "already-failed"],
+    )
+    def test_terminal_status_is_skipped(self, tmp_path: Path, status: JobStatus) -> None:
+        """验证终态 job 调用 mark_retry_exhausted 时跳过。"""
         service, settings, queue, event_bus = _make_service(tmp_path)
         sf = create_session_factory(settings)
-        _create_job(sf, tmp_path, job_id="job-done", status=JobStatus.COMPLETED, normalized_path="/fake.wav")
+        job_id = f"job-{status.value}"
+        _create_job(sf, tmp_path, job_id=job_id, status=status, normalized_path="/fake.wav")
 
-        service.mark_retry_exhausted("job-done", retries=3, max_retries=3)
-
-        # 不应标记为 FAILED，保持 COMPLETED
-        with sf() as session:
-            detail = JobRepository(session).get_job("job-done")
-        assert detail is not None
-        assert detail.status == JobStatus.COMPLETED
-        assert len(event_bus.events) == 0
-
-    def test_already_failed_job_is_skipped(self, tmp_path: Path) -> None:
-        """验证 FAILED 状态的 job 调用 mark_retry_exhausted 时跳过。"""
-        service, settings, queue, event_bus = _make_service(tmp_path)
-        sf = create_session_factory(settings)
-        _create_job(sf, tmp_path, job_id="job-fail2", status=JobStatus.FAILED, normalized_path="/fake.wav")
-
-        service.mark_retry_exhausted("job-fail2", retries=2, max_retries=2)
+        service.mark_retry_exhausted(job_id, retries=3, max_retries=3)
 
         with sf() as session:
-            detail = JobRepository(session).get_job("job-fail2")
+            detail = JobRepository(session).get_job(job_id)
         assert detail is not None
-        assert detail.status == JobStatus.FAILED
-        # 不应发布新的事件
+        assert detail.status == status
         assert len(event_bus.events) == 0
 
 

@@ -98,7 +98,17 @@ class TestRemoteSTTEngine:
         headers = mock_client.post.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer secret-key"
 
-    def test_bad_request_raises_non_retryable(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "status_code,detail,expected_error_code",
+        [
+            (400, "bad model", "INFERENCE_BAD_REQUEST"),
+            (401, "invalid key", "INFERENCE_AUTH_FAILED"),
+        ],
+        ids=["bad-request", "auth-error"],
+    )
+    def test_http_error_raises_non_retryable(
+        self, tmp_path: Path, status_code: int, detail: str, expected_error_code: str
+    ) -> None:
         wav = tmp_path / "normalized.wav"
         wav.write_bytes(b"fake")
         job = _make_job(tmp_path)
@@ -106,7 +116,7 @@ class TestRemoteSTTEngine:
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.post.return_value = _mock_response(400, {"detail": "bad model"})
+        mock_client.post.return_value = _mock_response(status_code, {"detail": detail})
 
         engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
 
@@ -114,25 +124,7 @@ class TestRemoteSTTEngine:
             with pytest.raises(RemoteSTTError) as exc_info:
                 engine.transcribe(job, wav)
 
-        assert exc_info.value.error_code == "INFERENCE_BAD_REQUEST"
-
-    def test_auth_error_raises_non_retryable(self, tmp_path: Path) -> None:
-        wav = tmp_path / "normalized.wav"
-        wav.write_bytes(b"fake")
-        job = _make_job(tmp_path)
-
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.post.return_value = _mock_response(401, {"detail": "invalid key"})
-
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key="wrong", timeout=600)
-
-        with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
-            with pytest.raises(RemoteSTTError) as exc_info:
-                engine.transcribe(job, wav)
-
-        assert exc_info.value.error_code == "INFERENCE_AUTH_FAILED"
+        assert exc_info.value.error_code == expected_error_code
 
     def test_server_error_raises_retryable(self, tmp_path: Path) -> None:
         wav = tmp_path / "normalized.wav"
@@ -150,7 +142,15 @@ class TestRemoteSTTEngine:
             with pytest.raises(RuntimeError, match="STT service error"):
                 engine.transcribe(job, wav)
 
-    def test_timeout_raises_retryable(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "side_effect,match_pattern",
+        [
+            (httpx.TimeoutException("read timed out"), "timed out"),
+            (httpx.ConnectError("connection refused"), "Cannot connect"),
+        ],
+        ids=["timeout", "connect-error"],
+    )
+    def test_network_error_raises_retryable(self, tmp_path: Path, side_effect: Exception, match_pattern: str) -> None:
         wav = tmp_path / "normalized.wav"
         wav.write_bytes(b"fake")
         job = _make_job(tmp_path)
@@ -158,26 +158,10 @@ class TestRemoteSTTEngine:
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.post.side_effect = httpx.TimeoutException("read timed out")
+        mock_client.post.side_effect = side_effect
 
         engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=10)
 
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="timed out"):
-                engine.transcribe(job, wav)
-
-    def test_connect_error_raises_retryable(self, tmp_path: Path) -> None:
-        wav = tmp_path / "normalized.wav"
-        wav.write_bytes(b"fake")
-        job = _make_job(tmp_path)
-
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.post.side_effect = httpx.ConnectError("connection refused")
-
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=10)
-
-        with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
-            with pytest.raises(RuntimeError, match="Cannot connect"):
+            with pytest.raises(RuntimeError, match=match_pattern):
                 engine.transcribe(job, wav)

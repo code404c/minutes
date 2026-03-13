@@ -57,6 +57,20 @@ def test_openai_transcriptions_returns_failed_job_error(gateway_harness_factory)
     )
 
 
+def test_openai_transcriptions_returns_404_when_job_disappears(gateway_harness_factory) -> None:
+    def delete_job(session_factory, _stage: str, job_id: str) -> None:  # type: ignore[no-untyped-def]
+        from minutes_core.models import JobRecord
+
+        with session_factory() as session:
+            session.query(JobRecord).filter(JobRecord.id == job_id).delete()
+            session.commit()
+
+    with gateway_harness_factory(on_dispatch=delete_job) as harness:
+        response = _post_transcription(harness.client)
+
+    assert_reasonable_error(response, status=HTTPStatus.NOT_FOUND, contains="disappeared")
+
+
 def test_openai_transcriptions_returns_success_response(gateway_harness_factory) -> None:
     def complete_job(session_factory, stage: str, job_id: str) -> None:
         if stage != "prepare":

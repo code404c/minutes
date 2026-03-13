@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from minutes_core.constants import SYNC_TRANSCRIPTION_MAX_DURATION_MS, JobStatus
 from minutes_core.media import MediaProbe
+from minutes_core.models import JobRecord
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import TranscriptDocument
@@ -284,3 +287,214 @@ def test_mark_retry_exhausted_without_max_retries(service_env: ServiceEnv) -> No
     assert detail is not None
     assert detail.status == JobStatus.FAILED
     assert detail.error_code == "INFERENCE_RETRY_EXHAUSTED"
+
+
+# ---------------------------------------------------------------------------
+# OrchestratorService.prepare_job 未覆盖分支 (lines 126-128)
+# ---------------------------------------------------------------------------
+
+
+def test_prepare_job_unexpected_exception_rollbacks_and_reraises(service_env: ServiceEnv, monkeypatch) -> None:
+    """probe_media 抛出非 MediaProcessingError 异常时应 rollback 并重新抛出。"""
+    e = service_env
+    job_id = create_test_job(e)
+
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.probe_media",
+        lambda _p: (_ for _ in ()).throw(RuntimeError("unexpected disk failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected disk failure"):
+        e.make_orchestrator().prepare_job(job_id)
+
+    # 验证 job 状态未被破坏（rollback 后应保留原状态）
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status != JobStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# OrchestratorService.finalize_job 未覆盖分支 (lines 149-150)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_job_skips_when_result_already_exists_non_noop_status(service_env: ServiceEnv) -> None:
+    """TRANSCRIBING 状态但已有 result 时应跳过 finalize（lines 148-150）。"""
+    e = service_env
+    job_id = create_test_job(e)
+
+    # 手动设置 result_json 并将 status 改为 TRANSCRIBING（非 NOOP 状态）
+    with e.session_factory() as session:
+        record = session.get(JobRecord, job_id)
+        assert record is not None
+        doc = TranscriptDocument(
+            job_id=job_id,
+            language="zh",
+            full_text="已有结果",
+            segments=[],
+            paragraphs=["已有结果"],
+            speakers=[],
+            model_profile=JobProfile.CN_MEETING,
+        )
+        record.result_json = doc.model_dump_json()
+        record.status = JobStatus.TRANSCRIBING.value
+        session.commit()
+
+    events_before = len(e.events.events)
+    e.make_orchestrator().finalize_job(job_id)
+
+    # 应该跳过，不产生新事件
+    assert len(e.events.events) == events_before
+    # 状态应保持 TRANSCRIBING，未被改为其他
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status == JobStatus.TRANSCRIBING
+
+
+# ---------------------------------------------------------------------------
+# OrchestratorService.finalize_job 未覆盖分支 (lines 191-193)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_job_unexpected_exception_rollbacks_and_reraises(service_env: ServiceEnv, monkeypatch) -> None:
+    """finalize_job 中出现非 ValidationError 的异常应 rollback 并重新抛出。"""
+    e = service_env
+    job_id = create_test_job(e)
+    with e.session_factory() as session:
+        JobRepository(session).update_job(job_id, status=JobStatus.TRANSCRIBING, progress=85)
+        session.commit()
+
+    # 创建 raw_transcript.json，内容为合法 JSON
+    raw_path = e.settings.artifacts_dir / job_id / "raw_transcript.json"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text('{"valid": "json"}', encoding="utf-8")
+
+    # Mock TranscriptDocument.model_validate_json 使其抛出非 ValidationError
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.TranscriptDocument.model_validate_json",
+        lambda _text: (_ for _ in ()).throw(OSError("disk read error")),
+    )
+
+    with pytest.raises(OSError, match="disk read error"):
+        e.make_orchestrator().finalize_job(job_id)
+
+
+# ---------------------------------------------------------------------------
+# OrchestratorService.mark_retry_exhausted 未覆盖分支 (lines 210-211, 213)
+# ---------------------------------------------------------------------------
+
+
+def test_orchestrator_mark_retry_exhausted_missing_job(service_env: ServiceEnv) -> None:
+    """不存在的 job 应静默返回（lines 210-211）。"""
+    e = service_env
+    # 不应抛出异常
+    e.make_orchestrator().mark_retry_exhausted(
+        "nonexistent-orchestrator-job",
+        stage="prepare",
+        retries=2,
+        max_retries=2,
+    )
+
+
+def test_orchestrator_mark_retry_exhausted_already_completed(service_env: ServiceEnv) -> None:
+    """COMPLETED 状态的 job 不应被标记为 FAILED（line 213）。"""
+    e = service_env
+    job_id = create_test_job(e)
+    with e.session_factory() as session:
+        JobRepository(session).update_job(job_id, status=JobStatus.COMPLETED, progress=100)
+        session.commit()
+
+    e.make_orchestrator().mark_retry_exhausted(
+        job_id,
+        stage="prepare",
+        retries=2,
+        max_retries=2,
+    )
+
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status == JobStatus.COMPLETED
+
+
+def test_orchestrator_mark_retry_exhausted_already_failed(service_env: ServiceEnv) -> None:
+    """FAILED 状态的 job 不应被再次标记为 FAILED（line 213）。"""
+    e = service_env
+    job_id = create_test_job(e)
+    with e.session_factory() as session:
+        JobRepository(session).update_job(
+            job_id,
+            status=JobStatus.FAILED,
+            progress=0,
+            error_code="PREVIOUS_ERROR",
+            error_message="previous failure",
+        )
+        session.commit()
+
+    e.make_orchestrator().mark_retry_exhausted(
+        job_id,
+        stage="finalize",
+        retries=2,
+        max_retries=2,
+    )
+
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status == JobStatus.FAILED
+    # 错误码应保持原样，不被覆盖
+    assert detail.error_code == "PREVIOUS_ERROR"
+
+
+def test_orchestrator_mark_retry_exhausted_already_canceled(service_env: ServiceEnv) -> None:
+    """CANCELED 状态的 job 不应被标记为 FAILED（line 213）。"""
+    e = service_env
+    job_id = create_test_job(e)
+    with e.session_factory() as session:
+        JobRepository(session).update_job(job_id, status=JobStatus.CANCELED, progress=0)
+        session.commit()
+
+    e.make_orchestrator().mark_retry_exhausted(
+        job_id,
+        stage="prepare",
+        retries=1,
+        max_retries=2,
+    )
+
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status == JobStatus.CANCELED
+
+
+# ---------------------------------------------------------------------------
+# OrchestratorService._publish 异常处理 (lines 272-273)
+# ---------------------------------------------------------------------------
+
+
+def test_publish_exception_is_swallowed(service_env: ServiceEnv, monkeypatch) -> None:
+    """_publish 中 event_bus.publish 抛出异常时应被吞掉，不影响主流程。"""
+    e = service_env
+    job_id = create_test_job(e)
+
+    orchestrator = e.make_orchestrator()
+
+    # 让 event_bus.publish 每次调用都抛出异常
+    def exploding_publish(event):  # type: ignore[no-untyped-def]
+        raise ConnectionError("Redis connection lost")
+
+    orchestrator.event_bus = type("BrokenBus", (), {"publish": staticmethod(exploding_publish)})()
+
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.probe_media",
+        lambda _p: MediaProbe(duration_ms=3_000, format_name="wav"),
+    )
+    monkeypatch.setattr(
+        "minutes_orchestrator.services.transcode_to_wav",
+        lambda _s, output: output.write_bytes(b"normalized") or output,
+    )
+
+    # 即使 publish 异常，prepare_job 仍应正常完成
+    orchestrator.prepare_job(job_id)
+
+    detail = e.get_job(job_id)
+    assert detail is not None
+    assert detail.status == JobStatus.PREPROCESSING
+    assert e.queue.transcribed == [job_id]

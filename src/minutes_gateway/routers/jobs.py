@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from loguru import logger
 from sse_starlette import EventSourceResponse
 
 from minutes_core.export import format_json, format_srt, format_txt, format_vtt
@@ -46,6 +47,7 @@ def _content_for_export(document: TranscriptDocument, export_format: str) -> tup
         return format_vtt(document), "text/vtt; charset=utf-8"
     if export_format == "json":
         return format_json(document), "application/json"
+    logger.warning("Unsupported export format requested: {}", export_format)
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported export format: {export_format}")
 
 
@@ -96,6 +98,7 @@ def get_job(job_id: str, session=Depends(get_db_session)) -> JobRead:
     repository = JobRepository(session)
     detail = repository.get_job(job_id)
     if detail is None:
+        logger.warning("Job {} not found.", job_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     return repository.to_read(detail)
 
@@ -106,8 +109,10 @@ def get_transcript(job_id: str, session=Depends(get_db_session)) -> TranscriptDo
     repository = JobRepository(session)
     detail = repository.get_job(job_id)
     if detail is None:
+        logger.warning("Job {} not found.", job_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     if detail.result is None:
+        logger.warning("Job {} transcript not ready yet.", job_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transcript is not ready yet.")
     return detail.result
 
@@ -118,8 +123,10 @@ def export_transcript(job_id: str, format: str, session=Depends(get_db_session))
     repository = JobRepository(session)
     detail = repository.get_job(job_id)
     if detail is None:
+        logger.warning("Job {} not found.", job_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
     if detail.result is None:
+        logger.warning("Job {} transcript not ready for export.", job_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transcript is not ready yet.")
     content, media_type = _content_for_export(detail.result, format)
     return Response(content=content, media_type=media_type)
@@ -137,6 +144,7 @@ async def stream_job_events(
     repository = JobRepository(session)
     detail = repository.get_job(job_id)
     if detail is None:
+        logger.warning("Job {} not found for SSE subscription.", job_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found.")
 
     async def _event_generator() -> AsyncIterator[dict[str, str]]:

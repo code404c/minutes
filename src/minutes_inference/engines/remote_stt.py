@@ -51,14 +51,19 @@ class RemoteSTTEngine:
         url = f"{self.base_url}/v1/audio/transcriptions"
         logger.info("Calling STT service: url={} model={} language={}", url, job.profile, language)
 
+        timeout = httpx.Timeout(connect=30.0, read=self.timeout, write=60.0, pool=30.0)
+
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.post(url, files=files, data=data, headers=headers)
         except httpx.TimeoutException as exc:
+            logger.warning("STT service timed out after {}s: url={}", self.timeout, url)
             raise RuntimeError(f"STT service timed out after {self.timeout}s") from exc
         except httpx.ConnectError as exc:
+            logger.warning("Cannot connect to STT service at {}", self.base_url)
             raise RuntimeError(f"Cannot connect to STT service at {self.base_url}") from exc
 
+        logger.debug("STT service responded with status {}: url={}", response.status_code, url)
         self._check_response(response)
         body = response.json()
 

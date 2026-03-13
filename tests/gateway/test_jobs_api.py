@@ -84,6 +84,13 @@ def test_get_job_returns_404_for_missing_job(gateway_harness_factory) -> None:
     assert response.status_code == HTTPStatus.NOT_FOUND
 
 
+def test_get_transcript_returns_404_for_missing_job(gateway_harness_factory) -> None:
+    with gateway_harness_factory() as harness:
+        response = harness.client.get("/api/v1/jobs/nonexistent-id/transcript")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
 def test_get_transcript_returns_409_when_job_is_not_ready(gateway_harness_factory) -> None:
     with gateway_harness_factory() as harness:
         job = harness.create_job(status=JobStatus.TRANSCRIBING, progress=50)

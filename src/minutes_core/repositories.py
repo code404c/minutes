@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from minutes_core.constants import JobStatus
@@ -39,6 +40,7 @@ class JobRepository:
         self.session.add(record)
         self.session.flush()
         self.session.refresh(record)
+        logger.debug("Created job {} with status {}", record.id, record.status)
         return self._to_detail(record)
 
     def get_job(self, job_id: str) -> JobDetail | None:
@@ -82,6 +84,8 @@ class JobRepository:
         self.session.add(record)
         self.session.flush()
         self.session.refresh(record)
+        if status is not None:
+            logger.debug("Updated job {} status to {}", job_id, status.value)
         return self._to_detail(record)
 
     def save_result(self, job_id: str, document: TranscriptDocument) -> JobDetail:

@@ -38,3 +38,42 @@ def test_handle_inference_retry_exhausted_forwards_retry_metadata(monkeypatch) -
     actors.handle_inference_retry_exhausted({"args": ["job-123"]}, {"retries": 2, "max_retries": 2})
 
     assert captured == {"job_id": "job-123", "retries": 2, "max_retries": 2}
+
+
+def test_transcribe_job_actor_calls_service(monkeypatch) -> None:
+    """验证 transcribe_job_actor 调用 get_inference_service().transcribe_job(job_id)。"""
+    captured: list[str] = []
+
+    class FakeService:
+        def transcribe_job(self, job_id: str) -> None:
+            captured.append(job_id)
+
+    monkeypatch.setattr(actors, "get_inference_service", lambda: FakeService())
+
+    actors.transcribe_job_actor("job-abc")
+
+    assert captured == ["job-abc"]
+
+
+def test_retry_exhausted_invalid_payload_returns_early(monkeypatch) -> None:
+    """验证 job_id 为 None 时（无效 payload），handler 提前返回，不调用 mark_retry_exhausted。"""
+    called = False
+
+    class FakeService:
+        def mark_retry_exhausted(self, job_id: str, *, retries: int, max_retries: int | None) -> None:
+            nonlocal called
+            called = True
+
+    monkeypatch.setattr(actors, "get_inference_service", lambda: FakeService())
+
+    # args 为空列表，无法提取 job_id
+    actors.handle_inference_retry_exhausted({"args": []}, {"retries": 1, "max_retries": 2})
+    assert not called
+
+    # args 不存在
+    actors.handle_inference_retry_exhausted({}, {"retries": 0, "max_retries": 1})
+    assert not called
+
+    # args 中第一个元素不是 str
+    actors.handle_inference_retry_exhausted({"args": [123]}, {"retries": 0, "max_retries": 1})
+    assert not called

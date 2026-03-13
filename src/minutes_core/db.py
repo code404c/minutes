@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from pathlib import Path
 
+from loguru import logger
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -68,6 +69,7 @@ def init_database(engine: Engine) -> None:
     """
     根据模型定义创建所有的数据库表（如果表尚不存在）。
     """
+    logger.info("Initializing database tables via {}", engine.url)
     Base.metadata.create_all(engine)
 
 

@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from loguru import logger
 
 from minutes_core.constants import JobStatus
 from minutes_core.export import format_srt, format_txt, format_vtt
@@ -43,12 +44,20 @@ async def _await_job_completion(
         job_id: 任务 ID。
         timeout_seconds: 最大等待时间（秒）。
     """
+    _POLL_INTERVAL = 0.2
+    # 最大轮询次数，防止因时钟异常导致无限循环
+    max_iterations = int(timeout_seconds / _POLL_INTERVAL) + 1
     deadline = asyncio.get_running_loop().time() + timeout_seconds
-    while asyncio.get_running_loop().time() < deadline:
+
+    for _iteration in range(max_iterations):
+        if asyncio.get_running_loop().time() >= deadline:
+            break
+
         # 强制刷新 SQLAlchemy 缓存，获取最新数据库状态
         repository.session.expire_all()
         detail = repository.get_job(job_id)
         if detail is None:
+            logger.warning("Job {} disappeared during polling.", job_id)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job disappeared.")
 
         # 任务成功完成
@@ -58,14 +67,17 @@ async def _await_job_completion(
         # 任务失败处理
         if detail.status == JobStatus.FAILED:
             if detail.error_code == "SYNC_DURATION_LIMIT_EXCEEDED":
+                logger.warning("Job {} exceeded sync duration limit: {}", job_id, detail.error_message)
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail.error_message)
+            logger.warning("Job {} failed: {}", job_id, detail.error_message or "unknown reason")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail.error_message or "Job failed."
             )
 
         # 稍作等待后继续轮询
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(_POLL_INTERVAL)
 
+    logger.warning("Job {} polling timed out after {}s.", job_id, timeout_seconds)
     raise HTTPException(
         status_code=status.HTTP_504_GATEWAY_TIMEOUT,
         detail="Timed out waiting for synchronous transcription.",
@@ -91,6 +103,7 @@ async def create_transcription(
     该接口是同步的：它会接收文件，启动后台任务，然后阻塞连接直到任务完成或超时。
     """
     if stream:
+        logger.warning("Streaming requested on synchronous OpenAI endpoint.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Streaming is not supported on the synchronous OpenAI-compatible endpoint.",

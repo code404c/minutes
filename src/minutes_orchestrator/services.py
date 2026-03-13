@@ -270,4 +270,4 @@ class OrchestratorService:
                 )
             )
         except Exception:
-            logger.exception("Failed to publish orchestrator event for job {}.", job_id)
+            logger.warning("Non-fatal: failed to publish event for job {}, SSE clients may miss updates.", job_id)

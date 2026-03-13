@@ -4,6 +4,7 @@ from typing import Protocol
 
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
+from loguru import logger
 
 
 class QueueDispatcher(Protocol):
@@ -44,16 +45,19 @@ class DramatiqQueueDispatcher:
         """发送预处理请求"""
         from minutes_orchestrator.actors import prepare_job_actor
 
+        logger.info("Dispatching prepare_job for job {}", job_id)
         prepare_job_actor.send(job_id)
 
     def enqueue_finalize_job(self, job_id: str) -> None:
         """发送后处理请求"""
         from minutes_orchestrator.actors import finalize_job_actor
 
+        logger.info("Dispatching finalize_job for job {}", job_id)
         finalize_job_actor.send(job_id)
 
     def enqueue_transcription_job(self, job_id: str) -> None:
         """发送语音转写请求"""
         from minutes_inference.actors import transcribe_job_actor
 
+        logger.info("Dispatching transcribe_job for job {}", job_id)
         transcribe_job_actor.send(job_id)

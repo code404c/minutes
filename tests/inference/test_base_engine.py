@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from minutes_inference.engines.base import InferenceEngine
 
 
@@ -21,18 +23,25 @@ def test_inference_engine_is_protocol_class() -> None:
     assert getattr(InferenceEngine, "_is_protocol", False) is True
 
 
-def test_concrete_engines_have_matching_transcribe_signature() -> None:
-    """验证 FakeInferenceEngine 和 RemoteSTTEngine 都实现了 transcribe 方法。"""
-    from minutes_inference.engines.fake import FakeInferenceEngine
-    from minutes_inference.engines.remote_stt import RemoteSTTEngine
+@pytest.mark.parametrize(
+    "engine_cls_path",
+    [
+        "minutes_inference.engines.fake.FakeInferenceEngine",
+        "minutes_inference.engines.remote_stt.RemoteSTTEngine",
+    ],
+    ids=["fake-engine", "remote-stt-engine"],
+)
+def test_concrete_engine_has_matching_transcribe_signature(engine_cls_path: str) -> None:
+    """验证具体引擎实现了 transcribe 方法且签名匹配。"""
+    import importlib
 
-    # 确保两个引擎都有 transcribe 方法
-    assert callable(getattr(FakeInferenceEngine, "transcribe", None))
-    assert callable(getattr(RemoteSTTEngine, "transcribe", None))
+    module_path, cls_name = engine_cls_path.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    engine_cls = getattr(module, cls_name)
 
-    # 确保方法签名中包含必要的参数
-    for engine_cls in (FakeInferenceEngine, RemoteSTTEngine):
-        ann = engine_cls.transcribe.__annotations__
-        assert "job" in ann
-        assert "normalized_path" in ann
-        assert "return" in ann
+    assert callable(getattr(engine_cls, "transcribe", None))
+
+    ann = engine_cls.transcribe.__annotations__
+    assert "job" in ann
+    assert "normalized_path" in ann
+    assert "return" in ann

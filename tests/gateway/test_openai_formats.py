@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+import pytest
+
 from minutes_core.profiles import JobProfile
 from minutes_core.repositories import JobRepository
 
@@ -35,34 +37,28 @@ def _post_transcription(client, *, response_format: str = "json", stream: bool =
     )
 
 
-def test_openai_transcriptions_text_format(gateway_harness_factory) -> None:
-    """response_format=text 应返回纯文本。"""
+@pytest.mark.parametrize(
+    "response_format,expected_content_type,content_check",
+    [
+        ("text", "text/plain", "大家好，今天讨论项目排期。"),
+        ("srt", "application/x-subrip", "00:00:00,000 -->"),
+        ("vtt", "text/vtt", "WEBVTT"),
+    ],
+    ids=["text", "srt", "vtt"],
+)
+def test_openai_transcriptions_subtitle_format(
+    gateway_harness_factory,
+    response_format: str,
+    expected_content_type: str,
+    content_check: str,
+) -> None:
+    """验证 text/srt/vtt 格式的响应内容和 Content-Type。"""
     with gateway_harness_factory(on_dispatch=_complete_job) as harness:
-        response = _post_transcription(harness.client, response_format="text")
+        response = _post_transcription(harness.client, response_format=response_format)
 
     assert response.status_code == HTTPStatus.OK
-    assert response.headers["content-type"].startswith("text/plain")
-    assert "大家好，今天讨论项目排期。" in response.text
-
-
-def test_openai_transcriptions_srt_format(gateway_harness_factory) -> None:
-    """response_format=srt 应返回 SRT 格式。"""
-    with gateway_harness_factory(on_dispatch=_complete_job) as harness:
-        response = _post_transcription(harness.client, response_format="srt")
-
-    assert response.status_code == HTTPStatus.OK
-    assert "application/x-subrip" in response.headers["content-type"]
-    assert "00:00:00,000 -->" in response.text
-
-
-def test_openai_transcriptions_vtt_format(gateway_harness_factory) -> None:
-    """response_format=vtt 应返回 WebVTT 格式。"""
-    with gateway_harness_factory(on_dispatch=_complete_job) as harness:
-        response = _post_transcription(harness.client, response_format="vtt")
-
-    assert response.status_code == HTTPStatus.OK
-    assert "text/vtt" in response.headers["content-type"]
-    assert response.text.startswith("WEBVTT")
+    assert expected_content_type in response.headers["content-type"]
+    assert content_check in response.text
 
 
 def test_openai_transcriptions_verbose_json_format(gateway_harness_factory) -> None:

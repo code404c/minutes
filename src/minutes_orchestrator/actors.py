@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 import dramatiq
+from loguru import logger
 
 from minutes_core.config import get_settings
 from minutes_core.queue import configure_broker
@@ -82,7 +83,20 @@ def handle_orchestrator_retry_exhausted(message_data: dict[str, object], retry_d
     job_id, retries, max_retries = _extract_retry_payload(message_data, retry_data)
     actor_name = message_data.get("actor_name")
     if job_id is None or not isinstance(actor_name, str):
+        logger.warning(
+            "Retry exhausted but failed to extract payload: job_id={}, actor_name={}",
+            job_id,
+            actor_name,
+        )
         return
+
+    logger.warning(
+        "Retry exhausted for orchestrator actor: job_id={}, actor={}, retries={}, max_retries={}",
+        job_id,
+        actor_name,
+        retries,
+        max_retries,
+    )
 
     # 判断是哪个阶段出的错
     if actor_name == prepare_job_actor.actor_name:

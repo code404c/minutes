@@ -4,6 +4,7 @@ import hmac
 from collections.abc import Generator
 
 from fastapi import HTTPException, Request, status
+from loguru import logger
 from sqlalchemy.orm import Session, sessionmaker
 
 from minutes_core.config import Settings
@@ -24,6 +25,7 @@ def verify_api_key(request: Request) -> None:
     header = request.headers.get("authorization", "")
     expected = f"Bearer {configured_key}"
     if not hmac.compare_digest(header, expected):
+        logger.warning("API key verification failed.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid API key.",

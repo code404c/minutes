@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
@@ -33,16 +34,31 @@ class EventBus:
         """
         self._client.publish(f"{self.channel_prefix}:{event.job_id}", event.model_dump_json())
 
+    @asynccontextmanager
+    async def _pubsub_connection(self, channel: str) -> AsyncIterator[AsyncRedis]:
+        """
+        管理异步 Redis PubSub 连接的生命周期。
+        确保在任何退出路径下（包括异常）都能正确释放资源。
+        """
+        client = AsyncRedis.from_url(self.redis_url, decode_responses=True)
+        try:
+            pubsub = client.pubsub()
+            try:
+                await pubsub.subscribe(channel)
+                yield pubsub  # type: ignore[arg-type]
+            finally:
+                await pubsub.unsubscribe(channel)
+                await pubsub.close()
+        finally:
+            await client.aclose()
+
     async def subscribe(self, job_id: str) -> AsyncIterator[str]:
         """
         异步订阅特定任务的事件频道。
         当有新事件发布时，通过异步迭代器产生消息内容。
         """
-        # 使用异步 Redis 客户端进行长连接订阅
-        client = AsyncRedis.from_url(self.redis_url, decode_responses=True)
-        pubsub = client.pubsub()
-        await pubsub.subscribe(f"{self.channel_prefix}:{job_id}")
-        try:
+        channel = f"{self.channel_prefix}:{job_id}"
+        async with self._pubsub_connection(channel) as pubsub:
             while True:
                 # 每秒检查一次是否有新消息，避免无限阻塞
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
@@ -50,11 +66,6 @@ class EventBus:
                     yield str(message["data"])
                 # 防止 CPU 空转
                 await asyncio.sleep(0.1)
-        finally:
-            # 确保在退出时正确释放资源
-            await pubsub.unsubscribe(f"{self.channel_prefix}:{job_id}")
-            await pubsub.close()
-            await client.aclose()
 
     def close(self) -> None:
         """关闭同步 Redis 客户端"""

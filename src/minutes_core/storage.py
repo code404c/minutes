@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path, PureWindowsPath
 
 from fastapi import UploadFile
+from loguru import logger
 
 from minutes_core.config import Settings
 
@@ -29,4 +30,5 @@ class StorageManager:
         source_path, artifact_dir = self.create_job_paths(filename, job_id=job_id)
         with source_path.open("wb") as handle:
             shutil.copyfileobj(upload.file, handle)
+        logger.debug("Saved upload to {}", source_path)
         return source_path, artifact_dir

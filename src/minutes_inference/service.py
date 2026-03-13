@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import os
+import tempfile
 from pathlib import Path
 
 from loguru import logger
@@ -101,8 +104,16 @@ class InferenceService:
 
                 # 调用引擎进行转录
                 document = engine.transcribe(detail, Path(detail.normalized_path))
-                # 将转录结果保存为 JSON 文件
-                raw_path.write_text(document.model_dump_json(indent=2), encoding="utf-8")
+                # 将转录结果原子写入 JSON 文件（先写临时文件再 rename）
+                tmp_fd, tmp_path = tempfile.mkstemp(dir=str(raw_path.parent), suffix=".tmp")
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                        f.write(document.model_dump_json(indent=2))
+                    os.replace(tmp_path, str(raw_path))
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        os.unlink(tmp_path)
+                    raise
 
                 # 推理完成后更新进度到 85%
                 self._set_progress(repository, session, job_id, progress=85)
@@ -185,4 +196,4 @@ class InferenceService:
                 )
             )
         except Exception:
-            logger.exception("Failed to publish inference event for job {}.", job_id)
+            logger.warning("Non-fatal: failed to publish event for job {}, SSE clients may miss updates.", job_id)

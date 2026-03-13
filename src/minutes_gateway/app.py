@@ -5,12 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from loguru import logger
 from sqlalchemy.orm import sessionmaker
 
 from minutes_core.config import Settings, get_settings
 from minutes_core.db import create_session_factory, init_database
 from minutes_core.events import EventBus
-from minutes_core.logging import configure_logging
+from minutes_core.logging import bind_request_context, configure_logging
 from minutes_core.queue import DramatiqQueueDispatcher, QueueDispatcher
 from minutes_core.storage import StorageManager
 from minutes_gateway.routers.jobs import router as jobs_router
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     在应用启动时初始化数据库，在关闭时清理资源（如 Redis 连接）。
     """
     init_database(app.state.session_factory.kw["bind"])
+    logger.info("Gateway service started.")
     try:
         yield
     finally:
@@ -31,6 +33,7 @@ async def lifespan(app: FastAPI):
         close = getattr(app.state.event_bus, "close", None)
         if callable(close):
             close()
+        logger.info("Gateway service stopped.")
 
 
 def create_app(
@@ -77,6 +80,7 @@ def create_app(
         为每个请求生成或传递 x-request-id，便于在分布式系统中追踪日志。
         """
         request.state.request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        bind_request_context(request_id=request.state.request_id)
         response = await call_next(request)
         response.headers["x-request-id"] = request.state.request_id
         return response

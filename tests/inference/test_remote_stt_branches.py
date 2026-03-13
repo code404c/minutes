@@ -107,32 +107,27 @@ class TestHotwordsPassthrough:
 class TestCheckResponseJsonFallback:
     """测试 _check_response 中 response.json() 解析失败回退到 response.text 的分支。"""
 
-    def test_non_json_error_response_falls_back_to_text(self) -> None:
+    @pytest.mark.parametrize(
+        "status_code,json_side_effect,text,expected_exc",
+        [
+            (400, ValueError("No JSON object could be decoded"), "Bad Request: unsupported format", RemoteSTTError),
+            (502, Exception("parse error"), "Bad Gateway", RuntimeError),
+            (401, ValueError("Not JSON"), "Unauthorized", RemoteSTTError),
+        ],
+        ids=["bad-request-non-json", "server-error-non-json", "auth-error-non-json"],
+    )
+    def test_non_json_error_falls_back_to_text(
+        self,
+        status_code: int,
+        json_side_effect: Exception,
+        text: str,
+        expected_exc: type[Exception],
+    ) -> None:
         """验证当 response.json() 抛异常时，使用 response.text 作为 detail。"""
         resp = MagicMock()
-        resp.status_code = 400
-        resp.json.side_effect = ValueError("No JSON object could be decoded")
-        resp.text = "Bad Request: unsupported format"
+        resp.status_code = status_code
+        resp.json.side_effect = json_side_effect
+        resp.text = text
 
-        with pytest.raises(RemoteSTTError, match="Bad Request: unsupported format"):
-            RemoteSTTEngine._check_response(resp)
-
-    def test_non_json_server_error_falls_back_to_text(self) -> None:
-        """验证服务端错误返回非 JSON 内容时，同样回退到 response.text。"""
-        resp = MagicMock()
-        resp.status_code = 502
-        resp.json.side_effect = Exception("parse error")
-        resp.text = "Bad Gateway"
-
-        with pytest.raises(RuntimeError, match="Bad Gateway"):
-            RemoteSTTEngine._check_response(resp)
-
-    def test_non_json_auth_error_falls_back_to_text(self) -> None:
-        """验证认证错误返回非 JSON 内容时，同样回退到 response.text。"""
-        resp = MagicMock()
-        resp.status_code = 401
-        resp.json.side_effect = ValueError("Not JSON")
-        resp.text = "Unauthorized"
-
-        with pytest.raises(RemoteSTTError, match="Unauthorized"):
+        with pytest.raises(expected_exc, match=text):
             RemoteSTTEngine._check_response(resp)
