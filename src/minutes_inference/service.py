@@ -13,8 +13,7 @@ from minutes_core.queue import DramatiqQueueDispatcher, QueueDispatcher
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import JobEvent
 from minutes_inference.engines.fake import FakeInferenceEngine
-from minutes_inference.engines.funasr_engine import FunASREngine, FunASRUnavailableError
-from minutes_inference.model_pool import TTLModelPool
+from minutes_inference.engines.remote_stt import RemoteSTTEngine, RemoteSTTError
 
 # 处于这些状态的任务不需要再次执行转录
 _NOOP_STATUSES = {
@@ -30,7 +29,7 @@ class InferenceService:
     """
     推理服务类。
 
-    该服务负责协调音频转录任务的执行。它从数据库中读取任务，调用合适的推理引擎（如 FunASR），
+    该服务负责协调音频转录任务的执行。它从数据库中读取任务，调用远程 STT 服务，
     并更新任务状态。它还负责发布进度事件和处理错误。
     """
 
@@ -55,8 +54,6 @@ class InferenceService:
         self.session_factory = session_factory or create_session_factory(settings)
         self.event_bus = event_bus or EventBus(settings.redis_url)
         self.queue_dispatcher = queue_dispatcher or DramatiqQueueDispatcher()
-        # 初始化模型池，管理昂贵的模型资源
-        self.model_pool = TTLModelPool(settings.model_ttl_seconds)
 
     def transcribe_job(self, job_id: str) -> None:
         """
@@ -95,9 +92,10 @@ class InferenceService:
                 engine = (
                     FakeInferenceEngine()
                     if self.settings.fake_inference
-                    else FunASREngine(
-                        settings=self.settings,
-                        model_pool=self.model_pool,
+                    else RemoteSTTEngine(
+                        base_url=self.settings.stt_base_url,
+                        api_key=self.settings.stt_api_key.get_secret_value() if self.settings.stt_api_key else None,
+                        timeout=self.settings.stt_timeout_seconds,
                     )
                 )
 
@@ -108,10 +106,10 @@ class InferenceService:
 
                 # 推理完成后更新进度到 85%
                 self._set_progress(repository, session, job_id, progress=85)
-            except FunASRUnavailableError as exc:
-                # 处理后端引擎不可用的情况
+            except RemoteSTTError as exc:
+                # 处理 STT 服务返回的不可重试错误
                 session.rollback()
-                self._mark_failed(repository, session, job_id, "INFERENCE_BACKEND_UNAVAILABLE", str(exc), progress=50)
+                self._mark_failed(repository, session, job_id, exc.error_code, str(exc), progress=50)
                 return
             except Exception:
                 # 其他异常抛出，由外部（如 Dramatiq）处理重试

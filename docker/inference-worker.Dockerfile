@@ -15,6 +15,6 @@ COPY README.md /app/README.md
 COPY src /app/src
 COPY scripts /app/scripts
 
-RUN python -m pip install --upgrade pip && python -m pip install ".[inference]"
+RUN python -m pip install --upgrade pip && python -m pip install .
 
 CMD ["bash", "scripts/run-inference-worker.sh"]

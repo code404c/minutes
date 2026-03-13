@@ -16,14 +16,12 @@ from tests.orchestrator.conftest import service_env as service_env  # noqa: F401
 
 @pytest.fixture
 def inference_settings(tmp_path: Path) -> Settings:
-    """提供带有 model_cache_dir 的 Settings 用于引擎测试。"""
+    """提供用于引擎测试的 Settings。"""
     return Settings(
         database_url="sqlite://",
         storage_root=tmp_path,
         redis_url="redis://unused:6379/0",
         fake_inference=False,
-        model_cache_dir=tmp_path / "model_cache",
-        inference_device="cpu",
     )
 
 

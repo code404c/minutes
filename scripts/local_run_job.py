@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-path", type=Path, default=Path(".local-run/app.db"), help="SQLite DB path.")
     parser.add_argument("--fake-inference", action="store_true", help="Use fake inference for quick smoke runs.")
     parser.add_argument("--language", default=None, help="Override language.")
-    parser.add_argument("--device", default="cuda:0", help="Inference device, for example cuda:0 or cpu.")
+    parser.add_argument("--stt-base-url", default="http://localhost:8101", help="STT service base URL.")
     return parser
 
 
@@ -60,7 +60,7 @@ def main() -> int:
         database_url=f"sqlite:///{args.database_path}",
         redis_url="redis://unused:6379/0",
         fake_inference=args.fake_inference,
-        inference_device=args.device,
+        stt_base_url=args.stt_base_url,
     )
     settings.storage_root.mkdir(parents=True, exist_ok=True)
     args.database_path.parent.mkdir(parents=True, exist_ok=True)

@@ -63,14 +63,12 @@ services:
       MINUTES_REDIS_URL: redis://redis:6379/0
       MINUTES_DATABASE_URL: sqlite:///data/app/app.db
       MINUTES_STORAGE_ROOT: /app/data/app
-      MINUTES_MODEL_CACHE_DIR: /modelscope-cache
+      MINUTES_STT_BASE_URL: http://funasr-server:8000
     depends_on:
       redis:
         condition: service_healthy
     volumes:
       - minutes_data:/app/data/app
-      - /home/ysnow/.cache/modelscope:/modelscope-cache
-    gpus: all
     command: ["bash", "scripts/run-inference-worker.sh"]
 
 volumes:

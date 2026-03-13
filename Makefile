@@ -4,7 +4,7 @@ PYTEST := $(UV) run pytest
 RUFF := $(UV) run ruff
 DOCKER_COMPOSE := docker compose
 
-.PHONY: help install db-upgrade dev-gateway dev-orchestrator dev-inference redis test format lint check docker-up docker-down download-models smoke-fake smoke-real
+.PHONY: help install db-upgrade dev-gateway dev-orchestrator dev-inference redis test format lint check smoke-fake smoke-real docker-up docker-down
 
 help:
 	@echo "开发:"
@@ -21,8 +21,7 @@ help:
 	@echo "  make test             - pytest"
 	@echo "  make check            - format-check + lint + test"
 	@echo ""
-	@echo "模型与 smoke:"
-	@echo "  make download-models  - 预下载默认 FunASR 模型"
+	@echo "Smoke:"
 	@echo "  make smoke-fake AUDIO=/path/to/audio"
 	@echo "  make smoke-real AUDIO=/path/to/audio"
 	@echo ""
@@ -61,9 +60,6 @@ check:
 	$(RUFF) format --check src tests scripts
 	$(RUFF) check src tests scripts
 	$(PYTEST) -v
-
-download-models:
-	$(PYTHON) scripts/download_models.py
 
 smoke-fake:
 	test -n "$(AUDIO)"

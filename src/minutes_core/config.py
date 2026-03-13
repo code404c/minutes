@@ -42,10 +42,10 @@ class Settings(BaseSettings):
     sync_wait_timeout_s: int = DEFAULT_SYNC_WAIT_TIMEOUT_S  # 同步模式等待超时时间（秒）
     sqlite_busy_timeout_ms: int = 5000  # SQLite 忙等待超时（毫秒）
 
-    # 模型与推理配置
-    model_cache_dir: Path = Path("/modelscope-cache")  # 模型下载和缓存目录
-    model_ttl_seconds: int = 900  # 模型在显存中的保留时间（秒）
-    inference_device: str = "cuda:0"  # 推理所使用的设备（如 cuda:0 或 cpu）
+    # STT 远程推理配置
+    stt_base_url: str = "http://localhost:8101"  # STT 服务地址
+    stt_api_key: SecretStr | None = None  # STT 服务 API key
+    stt_timeout_seconds: int = 600  # 单次转写超时（秒）
     gateway_public_base_url: str = "http://localhost:8000"  # 网关服务的公共访问 URL
     fake_inference: bool = False  # 是否使用模拟推理（测试用）
 
