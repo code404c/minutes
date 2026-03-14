@@ -30,9 +30,6 @@ from tests.helpers import (
     build_transcript_document as build_transcript_document,
 )
 from tests.helpers import (
-    error_message as error_message,
-)
-from tests.helpers import (
     extract_job_id as extract_job_id,
 )
 
