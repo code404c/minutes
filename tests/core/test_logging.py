@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from minutes_core.logging import InterceptHandler, bind_request_context, job_id_var, request_id_var
+from minutes_core.logging import (
+    InterceptHandler,
+    _record_patch,
+    bind_request_context,
+    clear_request_context,
+    job_id_var,
+    request_id_var,
+)
 
 
 def test_intercept_handler_valid_level() -> None:
@@ -71,3 +78,39 @@ def test_bind_request_context_skips_none_values() -> None:
     # 值应保持不变
     assert request_id_var.get() == "existing-req"
     assert job_id_var.get() == "existing-job"
+
+
+def test_record_patch_injects_context_values() -> None:
+    """_record_patch 应把 ContextVar 中的 request/job id 写入 extra。"""
+    request_id_var.set("req-ctx")
+    job_id_var.set("job-ctx")
+    record = {"extra": {"service": "gateway"}}
+
+    _record_patch(record)
+
+    assert record["extra"]["service"] == "gateway"
+    assert record["extra"]["request_id"] == "req-ctx"
+    assert record["extra"]["job_id"] == "job-ctx"
+
+
+def test_record_patch_sets_default_service_when_missing() -> None:
+    """_record_patch 在无 service 时应补默认值，保证日志结构稳定。"""
+    request_id_var.set(None)
+    job_id_var.set(None)
+    record = {}
+
+    _record_patch(record)
+
+    assert record["extra"]["service"] == "unknown"
+    assert record["extra"]["request_id"] is None
+    assert record["extra"]["job_id"] is None
+
+
+def test_clear_request_context_resets_values() -> None:
+    """clear_request_context 应清空上下文字段，避免跨请求污染。"""
+    bind_request_context(request_id="req-clean", job_id="job-clean")
+
+    clear_request_context()
+
+    assert request_id_var.get() is None
+    assert job_id_var.get() is None

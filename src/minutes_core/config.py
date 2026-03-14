@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from minutes_core.constants import DEFAULT_SYNC_WAIT_TIMEOUT_S
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # 网络配置
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = Field(default=8000, ge=1, le=65535)
 
     # 外部依赖连接
     database_url: str = "sqlite:///data/app/app.db"
@@ -39,15 +39,27 @@ class Settings(BaseSettings):
 
     # 业务逻辑默认配置
     default_profile: JobProfile = JobProfile.CN_MEETING  # 默认转写任务配置方案
-    sync_wait_timeout_s: int = DEFAULT_SYNC_WAIT_TIMEOUT_S  # 同步模式等待超时时间（秒）
-    sqlite_busy_timeout_ms: int = 5000  # SQLite 忙等待超时（毫秒）
+    sync_wait_timeout_s: int = Field(default=DEFAULT_SYNC_WAIT_TIMEOUT_S, ge=1)  # 同步模式等待超时时间（秒）
+    sqlite_busy_timeout_ms: int = Field(default=5000, ge=1)  # SQLite 忙等待超时（毫秒）
 
     # STT 远程推理配置
     stt_base_url: str = "http://localhost:8101"  # STT 服务地址
     stt_api_key: SecretStr | None = None  # STT 服务 API key
-    stt_timeout_seconds: int = 600  # 单次转写超时（秒）
+    stt_timeout_seconds: int = Field(default=600, ge=1)  # 单次转写超时（秒）
     gateway_public_base_url: str = "http://localhost:8000"  # 网关服务的公共访问 URL
     fake_inference: bool = False  # 是否使用模拟推理（测试用）
+
+    @field_validator("log_level")
+    @classmethod
+    def normalize_log_level(cls, value: str) -> str:
+        """标准化并校验日志等级，避免无效输入导致运行期静默异常。"""
+        alias_map = {"WARN": "WARNING", "FATAL": "CRITICAL"}
+        normalized = alias_map.get(value.strip().upper(), value.strip().upper())
+        valid_levels = {"TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"}
+        if normalized not in valid_levels:
+            valid = ", ".join(sorted(valid_levels))
+            raise ValueError(f"Invalid MINUTES_LOG_LEVEL={value!r}. Expected one of: {valid}")
+        return normalized
 
     @property
     def uploads_dir(self) -> Path:
