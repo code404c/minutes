@@ -1,10 +1,17 @@
-"""logging.py 的单元测试：InterceptHandler 和 bind_request_context。"""
+"""logging.py 的单元测试：InterceptHandler、bind_request_context、_record_patch 和 clear_request_context。"""
 
 from __future__ import annotations
 
 import logging
 
-from minutes_core.logging import InterceptHandler, bind_request_context, job_id_var, request_id_var
+from minutes_core.logging import (
+    InterceptHandler,
+    _record_patch,
+    bind_request_context,
+    clear_request_context,
+    job_id_var,
+    request_id_var,
+)
 
 
 def test_intercept_handler_valid_level() -> None:
@@ -71,3 +78,34 @@ def test_bind_request_context_skips_none_values() -> None:
     # 值应保持不变
     assert request_id_var.get() == "existing-req"
     assert job_id_var.get() == "existing-job"
+
+
+def test_record_patch_injects_context_values() -> None:
+    """_record_patch 应将 ContextVar 中的值注入到 record extra。"""
+    request_id_var.set("req-patch-1")
+    job_id_var.set("job-patch-1")
+    record: dict = {"extra": {"service": "test-svc"}}
+    _record_patch(record)
+    assert record["extra"]["request_id"] == "req-patch-1"
+    assert record["extra"]["job_id"] == "job-patch-1"
+    assert record["extra"]["service"] == "test-svc"
+
+
+def test_record_patch_sets_default_service_when_missing() -> None:
+    """_record_patch 在 extra 中无 service 时应设置默认值 'unknown'。"""
+    request_id_var.set(None)
+    job_id_var.set(None)
+    record: dict = {}
+    _record_patch(record)
+    assert record["extra"]["service"] == "unknown"
+    assert record["extra"]["request_id"] is None
+    assert record["extra"]["job_id"] is None
+
+
+def test_clear_request_context_resets_values() -> None:
+    """clear_request_context 应将 request_id 和 job_id 重置为 None。"""
+    request_id_var.set("req-to-clear")
+    job_id_var.set("job-to-clear")
+    clear_request_context()
+    assert request_id_var.get() is None
+    assert job_id_var.get() is None

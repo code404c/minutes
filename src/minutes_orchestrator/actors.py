@@ -6,6 +6,7 @@ import dramatiq
 from loguru import logger
 
 from minutes_core.config import get_settings
+from minutes_core.logging import bind_request_context
 from minutes_core.queue import configure_broker
 from minutes_orchestrator.services import OrchestratorService
 
@@ -58,6 +59,7 @@ def prepare_job_actor(job_id: str) -> None:
     """
     预处理 Actor：负责执行音频标准化。
     """
+    bind_request_context(job_id=job_id)
     get_orchestrator_service().prepare_job(job_id)
 
 
@@ -72,6 +74,7 @@ def finalize_job_actor(job_id: str) -> None:
     """
     后处理 Actor：负责汇总推理结果并保存。
     """
+    bind_request_context(job_id=job_id)
     get_orchestrator_service().finalize_job(job_id)
 
 
@@ -82,6 +85,8 @@ def handle_orchestrator_retry_exhausted(message_data: dict[str, object], retry_d
     """
     job_id, retries, max_retries = _extract_retry_payload(message_data, retry_data)
     actor_name = message_data.get("actor_name")
+    if job_id is not None:
+        bind_request_context(job_id=job_id)
     if job_id is None or not isinstance(actor_name, str):
         logger.warning(
             "Retry exhausted but failed to extract payload: job_id={}, actor_name={}",

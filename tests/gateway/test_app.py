@@ -1,4 +1,4 @@
-"""app.py 的 lifespan 和 main() 函数测试。"""
+"""app.py 的 lifespan、main() 和 middleware 测试。"""
 
 from __future__ import annotations
 
@@ -31,6 +31,18 @@ class TestLifespanClosesEventBus:
             response = harness.client.get("/health")
             assert response.status_code == 200
         # 如果运行到这里没有抛异常就说明通过
+
+
+class TestRequestContextCleanup:
+    """middleware 应在请求结束后清理上下文。"""
+
+    def test_request_context_is_cleared_after_request(self, gateway_harness_factory) -> None:
+        """验证请求处理完成后 clear_request_context 被调用。"""
+        with gateway_harness_factory() as harness:
+            with patch("minutes_gateway.app.clear_request_context") as mock_clear:
+                response = harness.client.get("/health")
+                assert response.status_code == 200
+                mock_clear.assert_called_once()
 
 
 class TestMain:

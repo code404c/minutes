@@ -6,6 +6,7 @@ import dramatiq
 from loguru import logger
 
 from minutes_core.config import get_settings
+from minutes_core.logging import bind_request_context
 from minutes_core.queue import configure_broker
 from minutes_inference.service import InferenceService
 
@@ -64,6 +65,7 @@ def transcribe_job_actor(job_id: str) -> None:
     该 Actor 监听 'inference' 队列。当接收到 job_id 时，它会调用推理服务进行转录。
     如果执行失败，Dramatiq 会根据 max_retries 进行自动重试。
     """
+    bind_request_context(job_id=job_id)
     get_inference_service().transcribe_job(job_id)
 
 
@@ -75,6 +77,8 @@ def handle_inference_retry_exhausted(message_data: dict[str, object], retry_data
     它会将任务状态更新为 FAILED，并记录详细的重试失败信息。
     """
     job_id, retries, max_retries = _extract_retry_payload(message_data, retry_data)
+    if job_id is not None:
+        bind_request_context(job_id=job_id)
     if job_id is None:
         logger.warning("Retry exhausted but failed to extract job_id from inference message payload.")
         return
