@@ -58,3 +58,16 @@ class TestMain:
             port=9999,
             reload=False,
         )
+
+
+def test_request_context_is_cleared_after_request(gateway_harness_factory) -> None:
+    """请求结束后应清理 ContextVar，避免跨请求上下文残留。"""
+    from minutes_core.logging import job_id_var, request_id_var
+
+    with gateway_harness_factory() as harness:
+        response = harness.client.get("/health", headers={"x-request-id": "req-cleanup"})
+        assert response.status_code == 200
+        assert response.headers["x-request-id"] == "req-cleanup"
+
+    assert request_id_var.get() is None
+    assert job_id_var.get() is None

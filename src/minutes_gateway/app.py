@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from minutes_core.config import Settings, get_settings
 from minutes_core.db import create_session_factory, init_database
 from minutes_core.events import EventBus
-from minutes_core.logging import bind_request_context, configure_logging
+from minutes_core.logging import bind_request_context, clear_request_context, configure_logging
 from minutes_core.queue import DramatiqQueueDispatcher, QueueDispatcher
 from minutes_core.storage import StorageManager
 from minutes_gateway.routers.jobs import router as jobs_router
@@ -81,9 +81,12 @@ def create_app(
         """
         request.state.request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
         bind_request_context(request_id=request.state.request_id)
-        response = await call_next(request)
-        response.headers["x-request-id"] = request.state.request_id
-        return response
+        try:
+            response = await call_next(request)
+            response.headers["x-request-id"] = request.state.request_id
+            return response
+        finally:
+            clear_request_context()
 
     @app.get("/health")
     async def health() -> JSONResponse:
