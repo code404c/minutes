@@ -31,7 +31,7 @@ help:
 	@echo "  make docker-down      - docker compose down"
 
 check-env:
-	$(PYTHON) scripts/check_env.py
+	python3 scripts/check_env.py
 
 install:
 	$(UV) sync --extra dev
