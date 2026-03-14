@@ -207,7 +207,6 @@ class TestTranscribeJobRemoteSTTError:
     ) -> None:
         """验证 RemoteSTTError 导致 job 标记为 FAILED，不抛异常，不 enqueue finalize。"""
         service, settings, queue, event_bus = _make_service(tmp_path)
-        service.settings = settings.model_copy(update={"fake_inference": False, "stt_base_url": "http://stt:8000"})
 
         sf = create_session_factory(settings)
 
@@ -228,12 +227,11 @@ class TestTranscribeJobRemoteSTTError:
             error_code=error_code,
         )
 
-        with patch("minutes_inference.service.RemoteSTTEngine") as mock_engine_cls:
-            mock_engine_instance = MagicMock()
-            mock_engine_instance.transcribe.side_effect = stt_error
-            mock_engine_cls.return_value = mock_engine_instance
+        mock_engine = MagicMock()
+        mock_engine.transcribe.side_effect = stt_error
+        service._engine = mock_engine
 
-            service.transcribe_job(job_id)
+        service.transcribe_job(job_id)
 
         # 不应 enqueue finalize
         assert job_id not in queue.finalized
@@ -256,7 +254,6 @@ class TestTranscribeJobGenericExceptionRollback:
     def test_unexpected_error_rolls_back_and_reraises(self, tmp_path: Path) -> None:
         """验证非 RemoteSTTError 的异常会 rollback session 并重新抛出。"""
         service, settings, queue, event_bus = _make_service(tmp_path)
-        service.settings = settings.model_copy(update={"fake_inference": False, "stt_base_url": "http://stt:8000"})
 
         sf = create_session_factory(settings)
 
@@ -271,14 +268,12 @@ class TestTranscribeJobGenericExceptionRollback:
             normalized_path=str(normalized),
         )
 
-        # mock RemoteSTTEngine.transcribe 抛出非 RemoteSTTError 的异常
-        with patch("minutes_inference.service.RemoteSTTEngine") as mock_engine_cls:
-            mock_engine_instance = MagicMock()
-            mock_engine_instance.transcribe.side_effect = RuntimeError("Unexpected CUDA OOM")
-            mock_engine_cls.return_value = mock_engine_instance
+        mock_engine = MagicMock()
+        mock_engine.transcribe.side_effect = RuntimeError("Unexpected CUDA OOM")
+        service._engine = mock_engine
 
-            with pytest.raises(RuntimeError, match="Unexpected CUDA OOM"):
-                service.transcribe_job("job-generic-err")
+        with pytest.raises(RuntimeError, match="Unexpected CUDA OOM"):
+            service.transcribe_job("job-generic-err")
 
         # 不应 enqueue finalize
         assert "job-generic-err" not in queue.finalized
@@ -356,3 +351,31 @@ class TestPublishEventFailure:
 
         # 尽管 event_bus 出错，finalize 仍应被 enqueue
         assert "job-evt-err" in queue.finalized
+
+
+class TestServiceCreatesEngineAtInit:
+    """测试 engine 在 init 时创建，而非每次 transcribe_job 时。"""
+
+    def test_engine_created_once_at_init(self, tmp_path: Path) -> None:
+        settings = Settings(
+            database_url=f"sqlite:///{tmp_path / 'jobs.db'}",
+            storage_root=tmp_path,
+            redis_url="redis://unused:6379/0",
+            fake_inference=False,
+            stt_base_url="http://stt:8000",
+        )
+        session_factory = create_session_factory(settings)
+        init_database(session_factory.kw["bind"])
+
+        with patch("minutes_inference.service.RemoteSTTEngine") as mock_engine_cls:
+            service = InferenceService(
+                settings=settings,
+                session_factory=session_factory,
+                event_bus=RecordingEventBus(),
+                queue_dispatcher=RecordingQueue(),
+            )
+            assert mock_engine_cls.call_count == 1
+
+            # transcribe_job on nonexistent job should not create another engine
+            service.transcribe_job("nonexistent-job")
+            assert mock_engine_cls.call_count == 1

@@ -15,6 +15,7 @@ from minutes_core.events import EventBus
 from minutes_core.queue import DramatiqQueueDispatcher, QueueDispatcher
 from minutes_core.repositories import JobRepository
 from minutes_core.schemas import JobEvent
+from minutes_inference.engines.base import InferenceEngine
 from minutes_inference.engines.fake import FakeInferenceEngine
 from minutes_inference.engines.remote_stt import RemoteSTTEngine, RemoteSTTError
 
@@ -57,6 +58,17 @@ class InferenceService:
         self.session_factory = session_factory or create_session_factory(settings)
         self.event_bus = event_bus or EventBus(settings.redis_url)
         self.queue_dispatcher = queue_dispatcher or DramatiqQueueDispatcher()
+        self._engine = self._create_engine()
+
+    def _create_engine(self) -> InferenceEngine:
+        """根据配置创建推理引擎（init 时调用一次）。"""
+        if self.settings.fake_inference:
+            return FakeInferenceEngine()
+        return RemoteSTTEngine(
+            base_url=self.settings.stt_base_url,
+            api_key=self.settings.stt_api_key.get_secret_value() if self.settings.stt_api_key else None,
+            timeout=self.settings.stt_timeout_seconds,
+        )
 
     def transcribe_job(self, job_id: str) -> None:
         """
@@ -91,19 +103,8 @@ class InferenceService:
                 # 更新进度到 50%
                 self._set_progress(repository, session, job_id, progress=50)
 
-                # 根据配置选择推理引擎（支持 Mock 引擎用于测试）
-                engine = (
-                    FakeInferenceEngine()
-                    if self.settings.fake_inference
-                    else RemoteSTTEngine(
-                        base_url=self.settings.stt_base_url,
-                        api_key=self.settings.stt_api_key.get_secret_value() if self.settings.stt_api_key else None,
-                        timeout=self.settings.stt_timeout_seconds,
-                    )
-                )
-
                 # 调用引擎进行转录
-                document = engine.transcribe(detail, Path(detail.normalized_path))
+                document = self._engine.transcribe(detail, Path(detail.normalized_path))
                 # 将转录结果原子写入 JSON 文件（先写临时文件再 rename）
                 tmp_fd, tmp_path = tempfile.mkstemp(dir=str(raw_path.parent), suffix=".tmp")
                 try:
@@ -129,6 +130,10 @@ class InferenceService:
 
         # 将任务入队到 orchestrator 进行最终处理
         self.queue_dispatcher.enqueue_finalize_job(job_id)
+
+    def close(self) -> None:
+        """释放推理引擎持有的资源。"""
+        self._engine.close()
 
     def mark_retry_exhausted(self, job_id: str, *, retries: int, max_retries: int | None) -> None:
         """

@@ -26,3 +26,7 @@ class InferenceEngine(Protocol):
             TranscriptDocument: 包含转录文本和相关元数据的文档对象。
         """
         ...
+
+    def close(self) -> None:
+        """释放引擎持有的资源（如 HTTP 连接池）。"""
+        ...

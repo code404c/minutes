@@ -4,7 +4,7 @@ PYTEST := $(UV) run pytest
 RUFF := $(UV) run ruff
 DOCKER_COMPOSE := docker compose
 
-.PHONY: help install db-upgrade dev-gateway dev-orchestrator dev-inference redis test format lint check smoke-fake smoke-real docker-up docker-down
+.PHONY: help check-env install db-upgrade dev-gateway dev-orchestrator dev-inference redis test format lint check smoke-fake smoke-real docker-up docker-down
 
 help:
 	@echo "开发:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make lint             - ruff check --fix"
 	@echo "  make test             - pytest"
 	@echo "  make check            - format-check + lint + test"
+	@echo "  make check-env        - 环境自检"
 	@echo ""
 	@echo "Smoke:"
 	@echo "  make smoke-fake AUDIO=/path/to/audio"
@@ -28,6 +29,9 @@ help:
 	@echo "Docker:"
 	@echo "  make docker-up        - docker compose up --build"
 	@echo "  make docker-down      - docker compose down"
+
+check-env:
+	$(PYTHON) scripts/check_env.py
 
 install:
 	$(UV) sync --extra dev
@@ -67,7 +71,7 @@ smoke-fake:
 
 smoke-real:
 	test -n "$(AUDIO)"
-	$(PYTHON) scripts/local_run_job.py "$(AUDIO)"
+	$(PYTHON) scripts/local_run_job.py $(if $(STT_URL),--stt-base-url $(STT_URL)) "$(AUDIO)"
 
 docker-up:
 	$(DOCKER_COMPOSE) up --build

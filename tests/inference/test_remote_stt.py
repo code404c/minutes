@@ -59,13 +59,10 @@ class TestRemoteSTTEngine:
         }
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(200, verbose_response)
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
             doc = engine.transcribe(job, wav)
 
         assert doc.job_id == "job-test-1"
@@ -86,13 +83,10 @@ class TestRemoteSTTEngine:
         job = _make_job(tmp_path)
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(200, {"text": "hi", "language": "en", "duration": 1.0})
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key="secret-key", timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key="secret-key", timeout=600)
             engine.transcribe(job, wav)
 
         headers = mock_client.post.call_args.kwargs["headers"]
@@ -114,13 +108,10 @@ class TestRemoteSTTEngine:
         job = _make_job(tmp_path)
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(status_code, {"detail": detail})
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
             with pytest.raises(RemoteSTTError) as exc_info:
                 engine.transcribe(job, wav)
 
@@ -132,13 +123,10 @@ class TestRemoteSTTEngine:
         job = _make_job(tmp_path)
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(500, {"detail": "internal error"})
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
             with pytest.raises(RuntimeError, match="STT service error"):
                 engine.transcribe(job, wav)
 
@@ -156,12 +144,32 @@ class TestRemoteSTTEngine:
         job = _make_job(tmp_path)
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.side_effect = side_effect
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=10)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=10)
             with pytest.raises(RuntimeError, match=match_pattern):
                 engine.transcribe(job, wav)
+
+    def test_engine_reuses_httpx_client_across_calls(self, tmp_path: Path) -> None:
+        wav = tmp_path / "normalized.wav"
+        wav.write_bytes(b"fake-audio-data")
+        job = _make_job(tmp_path)
+
+        verbose_response = {"text": "hi", "language": "en", "duration": 1.0}
+
+        mock_client = MagicMock()
+        mock_client.post.return_value = _mock_response(200, verbose_response)
+
+        with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client) as mock_cls:
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
+            engine.transcribe(job, wav)
+            engine.transcribe(job, wav)
+            assert mock_cls.call_count == 1  # Client created only once in __init__
+
+    def test_engine_close_closes_httpx_client(self, tmp_path: Path) -> None:
+        mock_client = MagicMock()
+        with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
+        engine.close()
+        mock_client.close.assert_called_once()

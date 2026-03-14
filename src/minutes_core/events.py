@@ -65,8 +65,9 @@ class EventBus:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message.get("data"):
                     yield str(message["data"])
-                # 防止 CPU 空转
-                await asyncio.sleep(0.1)
+                else:
+                    # 防止 CPU 空转
+                    await asyncio.sleep(0.1)
 
     def close(self) -> None:
         """关闭同步 Redis 客户端"""

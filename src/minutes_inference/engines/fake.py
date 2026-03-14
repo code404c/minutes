@@ -6,6 +6,9 @@ from minutes_core.schemas import JobDetail, Segment, Speaker, TranscriptDocument
 
 
 class FakeInferenceEngine:
+    def close(self) -> None:
+        """无操作 — Fake 引擎无需清理资源。"""
+
     def transcribe(self, job: JobDetail, normalized_path: Path) -> TranscriptDocument:
         text = f"Fake transcript for {normalized_path.stem}"
         return TranscriptDocument(

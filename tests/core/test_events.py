@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -196,3 +197,89 @@ async def test_subscribe_cleans_up_on_exception(monkeypatch) -> None:
     pubsub.unsubscribe.assert_awaited_once()
     pubsub.close.assert_awaited_once()
     client.aclose.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# EventBus.subscribe() — conditional sleep 测试
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_subscribe_does_not_sleep_after_receiving_message(monkeypatch) -> None:
+    """收到消息后不应调用 asyncio.sleep，避免不必要的 100ms 延迟。"""
+    messages = [
+        {"data": "msg-1"},
+        {"data": "msg-2"},
+    ]
+    client, _pubsub = _build_fake_async_redis(messages)
+    monkeypatch.setattr(
+        "minutes_core.events.AsyncRedis.from_url",
+        lambda *_a, **_kw: client,
+    )
+
+    sleep_calls: list[float] = []
+    original_sleep = asyncio.sleep
+
+    async def tracking_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        await original_sleep(0)  # 不真正等待
+
+    monkeypatch.setattr("minutes_core.events.asyncio.sleep", tracking_sleep)
+
+    bus = EventBus.__new__(EventBus)
+    bus.redis_url = "redis://unused:6379/0"
+    bus._client = MagicMock()
+
+    collected: list[str] = []
+    gen = bus.subscribe("job-42")
+    try:
+        async for item in gen:
+            collected.append(item)
+            if len(collected) >= 2:
+                break
+    except GeneratorExit:
+        pass
+
+    assert collected == ["msg-1", "msg-2"]
+    assert sleep_calls == [], f"sleep should not be called when messages are received, got {sleep_calls}"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_sleeps_only_when_no_message(monkeypatch) -> None:
+    """没有消息时应调用一次 asyncio.sleep(0.1)，有消息时不应调用。"""
+    messages = [
+        None,
+        {"data": "msg-1"},
+    ]
+    client, _pubsub = _build_fake_async_redis(messages)
+    monkeypatch.setattr(
+        "minutes_core.events.AsyncRedis.from_url",
+        lambda *_a, **_kw: client,
+    )
+
+    sleep_calls: list[float] = []
+    original_sleep = asyncio.sleep
+
+    async def tracking_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        await original_sleep(0)  # 不真正等待
+
+    monkeypatch.setattr("minutes_core.events.asyncio.sleep", tracking_sleep)
+
+    bus = EventBus.__new__(EventBus)
+    bus.redis_url = "redis://unused:6379/0"
+    bus._client = MagicMock()
+
+    collected: list[str] = []
+    gen = bus.subscribe("job-42")
+    try:
+        async for item in gen:
+            collected.append(item)
+            if len(collected) >= 1:
+                break
+    except GeneratorExit:
+        pass
+
+    assert collected == ["msg-1"]
+    assert len(sleep_calls) == 1, f"sleep should be called exactly once (for None round), got {sleep_calls}"
+    assert sleep_calls[0] == 0.1

@@ -28,6 +28,9 @@ class RemoteSTTEngine:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(connect=30.0, read=timeout, write=60.0, pool=30.0),
+        )
 
     def transcribe(self, job: JobDetail, normalized_path: Path) -> TranscriptDocument:
         profile = get_profile_spec(job.profile)
@@ -51,11 +54,8 @@ class RemoteSTTEngine:
         url = f"{self.base_url}/v1/audio/transcriptions"
         logger.info("Calling STT service: url={} model={} language={}", url, job.profile, language)
 
-        timeout = httpx.Timeout(connect=30.0, read=self.timeout, write=60.0, pool=30.0)
-
         try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(url, files=files, data=data, headers=headers)
+            response = self._client.post(url, files=files, data=data, headers=headers)
         except httpx.TimeoutException as exc:
             logger.warning("STT service timed out after {}s: url={}", self.timeout, url)
             raise RuntimeError(f"STT service timed out after {self.timeout}s") from exc
@@ -68,6 +68,10 @@ class RemoteSTTEngine:
         body = response.json()
 
         return verbose_json_to_transcript(body, job_id=job.id, profile=job.profile)
+
+    def close(self) -> None:
+        """关闭底层 HTTP 连接池。"""
+        self._client.close()
 
     @staticmethod
     def _check_response(response: httpx.Response) -> None:

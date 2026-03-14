@@ -30,6 +30,7 @@
 - 格式化: `make format`
 - 检查: `make lint`
 - 全量检查: `make check`
+- 环境自检: `make check-env`
 - 测试: `make test`
 
 ## 架构

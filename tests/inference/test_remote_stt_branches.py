@@ -61,13 +61,10 @@ class TestHotwordsPassthrough:
         }
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(200, verbose_response)
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
             engine.transcribe(job, wav)
 
         call_kwargs = mock_client.post.call_args
@@ -90,13 +87,10 @@ class TestHotwordsPassthrough:
         }
 
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.post.return_value = _mock_response(200, verbose_response)
 
-        engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
-
         with patch("minutes_inference.engines.remote_stt.httpx.Client", return_value=mock_client):
+            engine = RemoteSTTEngine(base_url="http://stt:8000", api_key=None, timeout=600)
             engine.transcribe(job, wav)
 
         call_kwargs = mock_client.post.call_args
