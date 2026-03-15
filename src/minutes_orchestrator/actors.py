@@ -6,7 +6,7 @@ import dramatiq
 from loguru import logger
 
 from minutes_core.config import get_settings
-from minutes_core.logging import bind_request_context
+from minutes_core.logging import bind_request_context, configure_logging
 from minutes_core.queue import configure_broker
 from minutes_orchestrator.services import OrchestratorService
 
@@ -14,6 +14,8 @@ from minutes_orchestrator.services import OrchestratorService
 settings = get_settings()
 # 配置 Dramatiq 消息代理（Redis）
 configure_broker(settings.redis_url)
+# 配置结构化日志（注册 _record_patch，使 job_id 自动注入日志）
+configure_logging(service_name="orchestrator", log_level=settings.log_level, serialize=settings.log_json)
 
 # 任务重试与超时限制配置
 MAX_RETRIES = 2  # 最大重试次数

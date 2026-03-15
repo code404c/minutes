@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import minutes_orchestrator.actors as actors
+from minutes_core.logging import job_id_var
 
 # ---------------------------------------------------------------------------
 # _extract_retry_payload
@@ -121,6 +122,21 @@ def test_prepare_job_actor_calls_service(monkeypatch) -> None:
     assert captured == ["job-prep-001"]
 
 
+def test_prepare_job_actor_binds_job_id(monkeypatch) -> None:
+    """prepare_job_actor 应将 job_id 绑定到日志上下文。"""
+
+    class FakeService:
+        def prepare_job(self, job_id: str) -> None:
+            pass
+
+    monkeypatch.setattr(actors, "get_orchestrator_service", lambda: FakeService())
+    job_id_var.set(None)
+
+    actors.prepare_job_actor.fn("job-ctx-001")
+
+    assert job_id_var.get() == "job-ctx-001"
+
+
 def test_finalize_job_actor_calls_service(monkeypatch) -> None:
     """finalize_job_actor 应调用 service.finalize_job。"""
     captured: list[str] = []
@@ -134,6 +150,21 @@ def test_finalize_job_actor_calls_service(monkeypatch) -> None:
     actors.finalize_job_actor.fn("job-fin-001")
 
     assert captured == ["job-fin-001"]
+
+
+def test_finalize_job_actor_binds_job_id(monkeypatch) -> None:
+    """finalize_job_actor 应将 job_id 绑定到日志上下文。"""
+
+    class FakeService:
+        def finalize_job(self, job_id: str) -> None:
+            pass
+
+    monkeypatch.setattr(actors, "get_orchestrator_service", lambda: FakeService())
+    job_id_var.set(None)
+
+    actors.finalize_job_actor.fn("job-ctx-002")
+
+    assert job_id_var.get() == "job-ctx-002"
 
 
 # ---------------------------------------------------------------------------

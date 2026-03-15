@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import minutes_inference.actors as actors
+from minutes_core.logging import job_id_var
 
 
 def test_get_inference_service_returns_process_singleton(monkeypatch) -> None:
@@ -53,6 +54,21 @@ def test_transcribe_job_actor_calls_service(monkeypatch) -> None:
     actors.transcribe_job_actor("job-abc")
 
     assert captured == ["job-abc"]
+
+
+def test_transcribe_job_actor_binds_job_id(monkeypatch) -> None:
+    """验证 transcribe_job_actor 将 job_id 绑定到日志上下文。"""
+
+    class FakeService:
+        def transcribe_job(self, job_id: str) -> None:
+            pass
+
+    monkeypatch.setattr(actors, "get_inference_service", lambda: FakeService())
+    job_id_var.set(None)
+
+    actors.transcribe_job_actor("job-ctx-inf-001")
+
+    assert job_id_var.get() == "job-ctx-inf-001"
 
 
 def test_retry_exhausted_invalid_payload_returns_early(monkeypatch) -> None:

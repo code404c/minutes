@@ -6,13 +6,15 @@ import dramatiq
 from loguru import logger
 
 from minutes_core.config import get_settings
-from minutes_core.logging import bind_request_context
+from minutes_core.logging import bind_request_context, configure_logging
 from minutes_core.queue import configure_broker
 from minutes_inference.service import InferenceService
 
 # 获取全局配置并配置 Dramatiq 代理（Redis）
 settings = get_settings()
 configure_broker(settings.redis_url)
+# 配置结构化日志（注册 _record_patch，使 job_id 自动注入日志）
+configure_logging(service_name="inference", log_level=settings.log_level, serialize=settings.log_json)
 
 # 定义任务重试和超时策略
 MAX_RETRIES = 2

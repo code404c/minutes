@@ -81,12 +81,10 @@ def create_app(
         """
         request.state.request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
         bind_request_context(request_id=request.state.request_id)
-        try:
-            response = await call_next(request)
-            response.headers["x-request-id"] = request.state.request_id
-            return response
-        finally:
-            clear_request_context()
+        response = await call_next(request)
+        response.headers["x-request-id"] = request.state.request_id
+        clear_request_context()
+        return response
 
     @app.get("/health")
     async def health() -> JSONResponse:
